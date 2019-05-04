@@ -197,7 +197,7 @@ def go(arg):
 
         optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
 
-        for i in trange(arg.iterations):
+        for i in range(arg.iterations):
 
             x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
 
@@ -379,7 +379,7 @@ def go(arg):
                 """
                 Compute the accuracy
                 """
-                print('Computing accuracy')
+                print('Finished iteration {}, repeat {}/{}, computing accuracy'.format(i, r, arg.repeats))
                 NUM = 10_000
                 tot = 0.0
                 correct = 0.0
