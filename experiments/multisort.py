@@ -183,12 +183,12 @@ def go(arg):
         hidden = 256
 
         tokeys = nn.Sequential(
-            util.Lambda(lambda x : x.view(arg.batch * arg.size * arg.digits, 1, 28, 28)),
+            util.Lambda(lambda x : x.view(-1, 1, 28, 28)),
             per_digit,
-            util.Lambda(lambda x: x.view(arg.batch * arg.size, arg.digits * out)),
+            util.Lambda(lambda x: x.view(-1, arg.digits * out)),
             nn.Linear(out * arg.digits, hidden), nn.ReLU(),
             nn.Linear(hidden, 1),
-            util.Lambda(lambda x: x.view(arg.batch, arg.size))
+            util.Lambda(lambda x: x.view(arg.batch, -1))
         )
 
         if arg.cuda:
@@ -379,14 +379,18 @@ def go(arg):
                 """
                 Compute the accuracy
                 """
+                print('Computing accuracy')
                 NUM = 10_000
                 tot = 0.0
                 correct = 0.0
+
+                test_size = arg.size if arg.test_size is None else arg.test_size
+
                 with torch.no_grad():
 
                     losses = []
-                    for ii in range(NUM//arg.batch):
-                        x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
+                    for ii in trange(NUM//arg.batch):
+                        x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
 
                         if arg.cuda:
                             x, t, l = x.cuda(), t.cuda(), l.cuda()
@@ -444,6 +448,11 @@ if __name__ == "__main__":
                         dest="size",
                         help="Dimensionality of the input.",
                         default=128, type=int)
+
+    parser.add_argument("--test-size",
+                        dest="test_size",
+                        help="Dimensionality of the test data (default is same as the input data).",
+                        default=None, type=int)
 
     parser.add_argument("-w", "--width",
                         dest="digits",
