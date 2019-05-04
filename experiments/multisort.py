@@ -155,7 +155,7 @@ def go(arg):
                                sigma_floor=arg.min_sigma, certainty=arg.certainty)
 
         # - channel sizes
-        c1, c2, c3 = 16, 32, 64
+        c1, c2, c3 = 32, 128, 512
         h1, h2, out= 256, 128, 8
 
         per_digit = nn.Sequential(
