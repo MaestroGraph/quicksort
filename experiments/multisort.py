@@ -379,7 +379,7 @@ def go(arg):
                 """
                 Compute the accuracy
                 """
-                print('Finished iteration {}, repeat {}/{}, computing accuracy'.format(i, r, arg.repeats))
+                print('Finished iteration {}, repeat {}/{}, computing accuracy'.format(i, r, arg.reps))
                 NUM = 10_000
                 tot = 0.0
                 correct = 0.0
