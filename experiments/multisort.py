@@ -256,188 +256,190 @@ def go(arg):
             # tbw.add_scalar('multisort/cert/{}/{}'.format(arg.size, r), model.certainty, i*arg.batch)
 
             # Plot intermediate results, and targets
-            if i % arg.plot_every == 0 and False:
-
-                optimizer.zero_grad()
-
-                x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
-
-                if arg.cuda:
-                    x, t = x.cuda(), t.cuda()
-
-                x, t = Variable(x), Variable(t)
-
-                keys = tokeys(x)
-
-                x = x.view(arg.batch, arg.size, -1)
-                t = t.view(arg.batch, arg.size, -1)
-
-                ys, ts, _ = model(x, keys=keys, target=t)
-
-                b, n, s = ys[0].size()
-
-                for d in range(1, len(ys) - 1):
-                    numbuckets = 2 ** d
-                    bucketsize = arg.size // numbuckets
-
-                    xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
-                    tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
-
-                    xb = xb.mean(dim=2, keepdim=True)\
-                        .expand(arg.batch, numbuckets, bucketsize, s)\
-                        .contiguous().view(arg.batch, n, s)
-                    tb = tb.mean(dim=2, keepdim=True)\
-                        .expand(arg.batch, numbuckets, bucketsize, s)\
-                        .contiguous().view(arg.batch, n, s)
-
-                    ys[d] = xb
-                    ts[d] = tb
-
-                md = int(np.log2(arg.size))
-                plt.figure(figsize=(arg.size*2, md+1))
-
-                c = 1
-                for row in range(md + 1):
-                    for col in range(arg.size*2):
-                        ax = plt.subplot(md+1, arg.size*2, c)
-
-                        images = ys[row] if col < arg.size else ts[row]
-                        im = images[0].view(arg.size, 28, 28)[col%arg.size].data.cpu().numpy()
-
-                        ax.imshow(im, cmap='gray_r')
-                        clean(ax)
-
-                        c += 1
-
-                plt.savefig('./mnist-sort/{}/intermediates.{:04}.pdf'.format(r, i))
-
-            # Plot the progress
-            if i % arg.plot_every == 0:
-
-                optimizer.zero_grad()
-
-                x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
-
-                if arg.cuda:
-                    x, t = x.cuda(), t.cuda()
-
-                x, t = Variable(x), Variable(t)
-
-                keys = tokeys(x)
-                keys.retain_grad()
-
-                x = x.view(arg.batch, arg.size, -1)
-                t = t.view(arg.batch, arg.size, -1)
-
-                yt, _ = model(x, keys=keys, train=True)
-
-                loss = F.mse_loss(yt, t)  # compute the loss
-                loss.backward()
-
-                yi, _ = model(x, keys=keys, train=False)
-
-                input  = x[0].view(arg.size, arg.digits, 28, 28)
-                target = t[0].view(arg.size, arg.digits, 28, 28)
-                output_inf   = yi[0].view(arg.size, arg.digits, 28, 28)
-                output_train = yt[0].view(arg.size, arg.digits, 28, 28)
-
-                plt.figure(figsize=(arg.size*3*arg.digits, 4*3))
-                for col in range(arg.size):
-
-                    ax = plt.subplot(4, arg.size, col + 1)
-                    plotn(target[col], ax)
-                    clean(ax)
-
-                    if col == 0:
-                        ax.set_ylabel('target')
-
-                    ax = plt.subplot(4, arg.size, col + arg.size + 1)
-                    plotn(input[col], ax)
-                    clean(ax)
-                    ax.set_xlabel( '{:.2}, {:.2}'.format(keys[0, col], - keys.grad[0, col] ) )
-
-                    if col == 0:
-                        ax.set_ylabel('input')
-
-                    ax = plt.subplot(4, arg.size, col + arg.size * 2 + 1)
-                    plotn(output_inf[col], ax)
-                    clean(ax)
-
-                    if col == 0:
-                        ax.set_ylabel('inference')
-
-                    ax = plt.subplot(4, arg.size, col + arg.size * 3 + 1)
-                    plotn(output_train[col], ax)
-                    clean(ax)
-
-                    if col == 0:
-                        ax.set_ylabel('training')
-
-                plt.savefig('./multisort/{}/mnist.{:04}.pdf'.format(r, i))
+            # if i % arg.plot_every == 0 and False:
+            #
+            #     optimizer.zero_grad()
+            #
+            #     x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
+            #
+            #     if arg.cuda:
+            #         x, t = x.cuda(), t.cuda()
+            #
+            #     x, t = Variable(x), Variable(t)
+            #
+            #     keys = tokeys(x)
+            #
+            #     x = x.view(arg.batch, arg.size, -1)
+            #     t = t.view(arg.batch, arg.size, -1)
+            #
+            #     ys, ts, _ = model(x, keys=keys, target=t)
+            #
+            #     b, n, s = ys[0].size()
+            #
+            #     for d in range(1, len(ys) - 1):
+            #         numbuckets = 2 ** d
+            #         bucketsize = arg.size // numbuckets
+            #
+            #         xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
+            #         tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
+            #
+            #         xb = xb.mean(dim=2, keepdim=True)\
+            #             .expand(arg.batch, numbuckets, bucketsize, s)\
+            #             .contiguous().view(arg.batch, n, s)
+            #         tb = tb.mean(dim=2, keepdim=True)\
+            #             .expand(arg.batch, numbuckets, bucketsize, s)\
+            #             .contiguous().view(arg.batch, n, s)
+            #
+            #         ys[d] = xb
+            #         ts[d] = tb
+            #
+            #     md = int(np.log2(arg.size))
+            #     plt.figure(figsize=(arg.size*2, md+1))
+            #
+            #     c = 1
+            #     for row in range(md + 1):
+            #         for col in range(arg.size*2):
+            #             ax = plt.subplot(md+1, arg.size*2, c)
+            #
+            #             images = ys[row] if col < arg.size else ts[row]
+            #             im = images[0].view(arg.size, 28, 28)[col%arg.size].data.cpu().numpy()
+            #
+            #             ax.imshow(im, cmap='gray_r')
+            #             clean(ax)
+            #
+            #             c += 1
+            #
+            #     plt.savefig('./mnist-sort/{}/intermediates.{:04}.pdf'.format(r, i))
+            #
+            # # Plot the progress
+            # if i % arg.plot_every == 0:
+            #
+            #     optimizer.zero_grad()
+            #
+            #     x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
+            #
+            #     if arg.cuda:
+            #         x, t = x.cuda(), t.cuda()
+            #
+            #     x, t = Variable(x), Variable(t)
+            #
+            #     keys = tokeys(x)
+            #     keys.retain_grad()
+            #
+            #     x = x.view(arg.batch, arg.size, -1)
+            #     t = t.view(arg.batch, arg.size, -1)
+            #
+            #     yt, _ = model(x, keys=keys, train=True)
+            #
+            #     loss = F.mse_loss(yt, t)  # compute the loss
+            #     loss.backward()
+            #
+            #     yi, _ = model(x, keys=keys, train=False)
+            #
+            #     input  = x[0].view(arg.size, arg.digits, 28, 28)
+            #     target = t[0].view(arg.size, arg.digits, 28, 28)
+            #     output_inf   = yi[0].view(arg.size, arg.digits, 28, 28)
+            #     output_train = yt[0].view(arg.size, arg.digits, 28, 28)
+            #
+            #     plt.figure(figsize=(arg.size*3*arg.digits, 4*3))
+            #     for col in range(arg.size):
+            #
+            #         ax = plt.subplot(4, arg.size, col + 1)
+            #         plotn(target[col], ax)
+            #         clean(ax)
+            #
+            #         if col == 0:
+            #             ax.set_ylabel('target')
+            #
+            #         ax = plt.subplot(4, arg.size, col + arg.size + 1)
+            #         plotn(input[col], ax)
+            #         clean(ax)
+            #         ax.set_xlabel( '{:.2}, {:.2}'.format(keys[0, col], - keys.grad[0, col] ) )
+            #
+            #         if col == 0:
+            #             ax.set_ylabel('input')
+            #
+            #         ax = plt.subplot(4, arg.size, col + arg.size * 2 + 1)
+            #         plotn(output_inf[col], ax)
+            #         clean(ax)
+            #
+            #         if col == 0:
+            #             ax.set_ylabel('inference')
+            #
+            #         ax = plt.subplot(4, arg.size, col + arg.size * 3 + 1)
+            #         plotn(output_train[col], ax)
+            #         clean(ax)
+            #
+            #         if col == 0:
+            #             ax.set_ylabel('training')
+            #
+            #     plt.savefig('./multisort/{}/mnist.{:04}.pdf'.format(r, i))
 
             if i % arg.dot_every == 0:
                 """
                 Compute the accuracy
                 """
                 print('Finished iteration {}, repeat {}/{}, computing accuracy'.format(i, r, arg.reps))
-                NUM = 10_000
-                tot = 0.0
-                correct = 0.0
+                NUM = 1_000
+                tot, tot_sub = 0.0, 0.0
+                correct, sub = 0.0, 0.0
 
-                test_size = arg.size if arg.test_size is None else arg.test_size
 
                 with torch.no_grad():
 
-                    losses = []
-                    for ii in trange(NUM//arg.batch):
-                        x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
+                    for test_size in arg.test_sizes:
+                        for ii in trange(NUM//arg.batch):
+                            x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
 
-                        if arg.cuda:
-                            x, t, l = x.cuda(), t.cuda(), l.cuda()
+                            if arg.cuda:
+                                x, t, l = x.cuda(), t.cuda(), l.cuda()
 
-                        x, t, l = Variable(x), Variable(t), Variable(l)
+                            x, t, l = Variable(x), Variable(t), Variable(l)
 
-                        keys = tokeys(x)
+                            keys = tokeys(x)
 
-                        # Sort the keys, and sort the labels, and see if the resulting indices match
-                        _, gold = torch.sort(l, dim=1)
-                        _, mine = torch.sort(keys, dim=1)
+                            # Sort the keys, and sort the labels, and see if the resulting indices match
+                            _, gold = torch.sort(l, dim=1)
+                            _, mine = torch.sort(keys, dim=1)
 
-                        tot += x.size(0)
-                        correct += ((gold != mine).sum(dim=1) == 0).sum().item()
+                            tot += x.size(0)
+                            correct += ((gold != mine).sum(dim=1) == 0).sum().item()
 
-                    print('acc', correct/tot)
+                            sub += (gold == mine).sum()
+                            tot_sub += util.prod(gold.size())
 
-                    results[r, i//arg.dot_every] = np.mean(correct/tot)
+                        print('text size {}, accuracy {:.5} ({:.5})'.format( test_size, correct/tot, float(sub)/tot_sub) )
+
+                    # results[r, i//arg.dot_every] = np.mean(correct/tot)
 
                     tbw.add_scalar('multisort/testloss/{}/{}'.format(arg.size, r), correct/tot, i * arg.batch)
 
-    np.save('results.{}.np'.format(arg.size), results)
-    print('experiments finished')
-
-    plt.figure(figsize=(10, 5))
-    ax = plt.gca()
-
-    if results.shape[0] > 1:
-        ax.errorbar(x=np.arange(ndots) * arg.dot_every, y=np.mean(results[:, :], axis=0),
-                        yerr=np.std(results[:, :], axis=0),
-                        label='size {0}x{0}, r={1}'.format(arg.size, arg.reps))
-    else:
-        ax.plot(np.arange(ndots) * arg.dot_every, np.mean(results[:, :], axis=0),
-                        label='size {0}x{0}'.format(arg.size))
-
-    ax.legend()
-
-    util.basic(ax)
-
-    ax.spines['bottom'].set_position('zero')
-    ax.set_ylim(0.0, 1.0)
-#    ax.set_xlim(0.0, 100.0)
-
-    plt.xlabel('iterations')
-    plt.ylabel('error')
-
-    plt.savefig('./multisort/result.png')
+#     np.save('results.{}.np'.format(arg.size), results)
+#     print('experiments finished')
+#
+#     plt.figure(figsize=(10, 5))
+#     ax = plt.gca()
+#
+#     if results.shape[0] > 1:
+#         ax.errorbar(x=np.arange(ndots) * arg.dot_every, y=np.mean(results[:, :], axis=0),
+#                         yerr=np.std(results[:, :], axis=0),
+#                         label='size {0}x{0}, r={1}'.format(arg.size, arg.reps))
+#     else:
+#         ax.plot(np.arange(ndots) * arg.dot_every, np.mean(results[:, :], axis=0),
+#                         label='size {0}x{0}'.format(arg.size))
+#
+#     ax.legend()
+#
+#     util.basic(ax)
+#
+#     ax.spines['bottom'].set_position('zero')
+#     ax.set_ylim(0.0, 1.0)
+# #    ax.set_xlim(0.0, 100.0)
+#
+#     plt.xlabel('iterations')
+#     plt.ylabel('error')
+#
+#     plt.savefig('./multisort/result.png')
 
 if __name__ == "__main__":
 
@@ -449,10 +451,11 @@ if __name__ == "__main__":
                         help="Dimensionality of the input.",
                         default=128, type=int)
 
-    parser.add_argument("--test-size",
-                        dest="test_size",
+    parser.add_argument("--test-sizes",
+                        dest="test_sizes",
+                        nargs="+",
                         help="Dimensionality of the test data (default is same as the input data).",
-                        default=None, type=int)
+                        default="4 8 16", type=int)
 
     parser.add_argument("-w", "--width",
                         dest="digits",
