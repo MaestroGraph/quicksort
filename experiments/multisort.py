@@ -155,27 +155,27 @@ def go(arg):
                                sigma_floor=arg.min_sigma, certainty=arg.certainty)
 
         # - channel sizes
-        c1, c2, c3 = 32, 128, 512
+        c1, c2, c3 = 16, 128, 512
         h1, h2, out= 256, 128, 8
 
         per_digit = nn.Sequential(
             nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
-            # nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-            # nn.Conv2d(c1, c1, (3, 3), padding=1, bias=False), nn.ReLU(),
+            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c1, c1, (3, 3), padding=1, bias=False), nn.ReLU(),
             nn.BatchNorm2d(c1),
             nn.MaxPool2d((2, 2)),
             nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
-            # nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-            # nn.Conv2d(c2, c2, (3, 3), padding=1, bias=False), nn.ReLU(),
+            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c2, c2, (3, 3), padding=1, bias=False), nn.ReLU(),
             nn.BatchNorm2d(c2),
             nn.MaxPool2d((2, 2)),
             nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
-            # nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-            # nn.Conv2d(c3, c3, (3, 3), padding=1, bias=False), nn.ReLU(),
+            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c3, c3, (3, 3), padding=1, bias=False), nn.ReLU(),
             nn.BatchNorm2d(c3),
             nn.MaxPool2d((2, 2)),
             util.Flatten(),
-            nn.Linear(9 * c3, out), #nn.ReLU(),
+            nn.Linear(9 * c3, out), nn.ReLU(),
             # nn.Linear(h1, h2), nn.ReLU(),
             # nn.Linear(h1, out)# , nn.BatchNorm1d(1),
         )
