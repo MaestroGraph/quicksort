@@ -726,12 +726,24 @@ def split(offset, depth):
 
     # If offset is not arranged correctly (equal numbers of ups and downs per bucket)
     # we get a non-permutation. This is fine, but we must clamp the result to make sure the
-    # indices are still legal
+    # indices are still legal.
+    # (this shouldn't happen with the standard quicksort algorithm)
     result = result.clamp(0, s-1)
 
     return result.view(b, n, s)
 
 def sample_offsets(batch, num, size, depth, cuda=False):
+    """
+    Sample a uniform random offset vector (for the quicksort algorithm).
+
+    :param batch: Size of the batch dim.
+    :param num: Number of vectors to sample
+    :param size: Size of the vectors
+    :param depth: Order of the vectors (order 0 has 2 buckets, order 1 has 4, and so on)
+    :param cuda:
+    :return:
+    """
+
     dv = 'cuda' if cuda else 'cpu'
 
     numbuckets = 2 ** depth # number of buckets in the input
@@ -746,7 +758,6 @@ def sample_offsets(batch, num, size, depth, cuda=False):
     ordered = ordered.view(batch, num, numbuckets, bsize)
 
     return ordered.contiguous().view(batch, num, -1)
-
 
 shufflecache = {}
 cache_size = 500_000

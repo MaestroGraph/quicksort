@@ -157,24 +157,58 @@ def go(arg):
         model = dqsort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale,
                                sigma_floor=arg.min_sigma, certainty=arg.certainty)
 
-        # architecture taken from neuralsort paper
-        c1, c2, h = 32, 64, 64
+        if arg.model == 'original':
+            # architecture taken from neuralsort paper
+            c1, c2, h = 32, 64, 64
 
-        fin = (arg.digits * 28 // 4) * (28 // 4) * c2
+            fin = (arg.digits * 28 // 4) * (28 // 4) * c2
 
-        tokeys = nn.Sequential(
-            util.Lambda(lambda x : x.view(-1, 1, 28, arg.digits * 28)),
-            nn.Conv2d(1, c1, 5, padding=2), nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.BatchNorm2d(c1),
-            nn.Conv2d(c1, c2, 5, padding=2), nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.BatchNorm2d(c2),
-            util.Flatten(),
-            nn.Linear(fin, 64), nn.ReLU(),
-            nn.Linear(64, 1),
-            util.Lambda(lambda x : x.view(arg.batch, -1))
-        )
+            tokeys = nn.Sequential(
+                util.Lambda(lambda x : x.view(-1, 1, 28, arg.digits * 28)),
+                nn.Conv2d(1, c1, 5, padding=2), nn.ReLU(),
+                nn.MaxPool2d(2),
+                nn.BatchNorm2d(c1),
+                nn.Conv2d(c1, c2, 5, padding=2), nn.ReLU(),
+                nn.MaxPool2d(2),
+                nn.BatchNorm2d(c2),
+                util.Flatten(),
+                nn.Linear(fin, 64), nn.ReLU(),
+                nn.Linear(64, 1),
+                util.Lambda(lambda x : x.view(arg.batch, -1))
+            )
+        elif arg.model == 'big':
+            # - channel sizes
+            c1, c2, c3 = 16, 128, 512
+            h1, h2, out = 256, 128, 8
+
+            fin = (arg.digits * 28 // 8) * (28 // 8) * c3
+
+            tokeys = nn.Sequential(
+                util.Lambda(lambda x: x.view(-1, 1, 28, arg.digits * 28)),
+                nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c1, c1, (3, 3), padding=1, bias=False), nn.ReLU(),
+                nn.BatchNorm2d(c1),
+                nn.MaxPool2d((2, 2)),
+                nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c2, c2, (3, 3), padding=1, bias=False), nn.ReLU(),
+                nn.BatchNorm2d(c2),
+                nn.MaxPool2d((2, 2)),
+                nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c3, c3, (3, 3), padding=1, bias=False), nn.ReLU(),
+                nn.BatchNorm2d(c3),
+                nn.MaxPool2d((2, 2)),
+                util.Flatten(),
+                nn.Linear(fin, out), nn.ReLU(),
+                nn.Linear(out, 1),
+                util.Lambda(lambda x : x.view(arg.batch, -1))
+            )
+
+        else:
+            raise Exception('Model {} not recognized.'.format(arg.model))
+
 
         if arg.cuda:
             model.cuda()
@@ -398,6 +432,11 @@ if __name__ == "__main__":
 
     ## Parse the command line options
     parser = ArgumentParser()
+
+    parser.add_argument("-m", "--model",
+                        dest="model",
+                        help="Whether to use the original model, or a bigger version.",
+                        default='original', type=str)
 
     parser.add_argument("-s", "--size",
                         dest="size",

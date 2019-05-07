@@ -37,7 +37,7 @@ class Split(nn.Module):
 
     def duplicates(self, tuples):
         """
-        Takes a list of tuples, and for each tuple that occurs mutiple times
+        Takes a list of tuples, and for each tuple that occurs multiple times
         marks all but one of the occurences (in the mask that is returned).
 
         :param tuples: A size (batch, k, rank) tensor of integer tuples
