@@ -25,6 +25,9 @@ LOG = logging.getLogger()
 """
 Experiment: learn to sort numbers consisting of multiple MNIST digits.
 
+Like MNIST sort, but the key network is wired with digit invariance (the same network is used for each digit in the 
+sequence)
+
 """
 tbw = SummaryWriter()
 

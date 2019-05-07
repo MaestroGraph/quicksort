@@ -1,7 +1,7 @@
-from _context import dqsort
-
-import torch, random
+import sort
+import torch, random, sys
 from torch.autograd import Variable
+from torch.nn import Parameter
 import torch.nn.functional as F
 from torch import nn, optim
 from tqdm import trange
@@ -10,21 +10,25 @@ from tensorboardX import SummaryWriter
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import logging, time, gc
-from dqsort import util
+import util, logging, time, gc
 import numpy as np
+from scipy.stats import sem
+from numpy import std
 
 from argparse import ArgumentParser
 
 import torchvision
 from torch.utils.data import TensorDataset, DataLoader
 
+import os
+
+from gaussian import HyperLayer
+
 logging.basicConfig(filename='run.log',level=logging.INFO)
 LOG = logging.getLogger()
 
 """
-Experiment: learn to sort numbers consisting of multiple MNIST digits.
-
+Experiment learn to sort single mnist digits. See multisort.experiment.py for the experiment reported in the paper.
 """
 tbw = SummaryWriter()
 
@@ -40,55 +44,28 @@ def clean(axes=None):
     axes.tick_params(top=False, bottom=False, left=False, right=False, labelbottom=False, labelleft=False)
 
 
-def gen(b, data, labels, size, digits):
-    """
+def gen(b, data, size):
 
-    :param b:
-    :param data: An MNIST tensor containing the images (test or training)
-    :param labels: the corresponding labels
-    :param size:
-    :param digits: number of digits per instances
-    :return: x, t, l. The permuted digits, the sorted digits and the label (the represented number as an integer).
-    """
+    t = torch.zeros(b, size, 1, 28, 28)
+    l = torch.zeros(b, size)
 
-    n = data.size(0)
+    # Select random digits
+    for i in range(size):
+        sample = random.choices(data[i], k=b)
 
-    total = b * size * digits
-    inds = random.choices(range(n), k=total)
+        t[:, i, :, :, :] = torch.cat(sample, dim=0)
+        l[:, i] = i
 
-    x   = data[inds, :, :, :]
-    l = labels[inds]
+    x = t.clone()
 
-    x = x.view(b, size, digits, 1, 28, 28)
-    l = l.view(b, size, digits)
+    # Shuffle
+    for bi in range(b):
+        perm = torch.randperm(size)
 
-    power = 10 ** torch.arange(digits, dtype=torch.long)
-    l = (l * power).sum(dim=2)
-
-    _, idx = l.sort(dim=1)
-
-    t = x.gather(dim=1, index=idx[:, :, None, None, None, None].expand(b, size, digits, 1, 28, 28))
-
-    x = x.permute(0, 1, 3, 4, 2, 5).contiguous()
-    x = x.view(b, size, 1, 28, 28 * digits)
-
-    t = t.permute(0, 1, 3, 4, 2, 5).contiguous()
-    t = t.view(b, size, 1, 28, 28 * digits)
+        x[bi] = x[bi, perm, :, :, :]
+        l[bi] =l[bi, perm]
 
     return x, t, l
-
-# def plotn(data, ax):
-#
-#     n = data.size(0)
-#
-#     for i in range(n):
-#         im = data[i].data.cpu().numpy()
-#         ax.imshow(im, extent=(n-i-1, n-i, 0, 1), cmap='gray_r')
-#
-#     ax.set_xlim(0, n)
-#     ax.set_ylim(0, 1)
-#
-#     ax.axhline()
 
 def go(arg):
     """
@@ -96,10 +73,6 @@ def go(arg):
     :param arg:
     :return:
     """
-
-    torch.manual_seed(arg.seed)
-    np.random.seed(arg.seed)
-    random.seed(arg.seed)
 
     torch.set_printoptions(precision=10)
 
@@ -124,56 +97,85 @@ def go(arg):
         trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
         testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
 
-    shape = (1, 28, 28 * arg.digits)
+    shape = (1, 28, 28)
     num_classes = 10
 
-    # Load the MNIST digits into a single tensor
-    xbatches = []
-    lbatches = []
-    for xbatch, lbatch in trainloader:
-        xbatches.append(xbatch)
-        lbatches.append(lbatch)
+    train = {label: [] for label in range(10)}
 
-    data   = torch.cat(xbatches, dim=0)
-    labels = torch.cat(lbatches, dim=0)
+    for inps, labels in trainloader:
+        b, c, h, w = inps.size()
+        for i in range(b):
+            image = inps[i:i+1, :, :, :]
+            label = labels[i].item()
+            train[label].append(image)
 
     if arg.limit is not None:
-        data = data[:arg.limit]
-        labels = labels[:arg.limit]
+        train = {label: imgs[:arg.limit] for label, imgs in train.items()}
 
-    xbatches = []
-    lbatches = []
-    for xbatch, lbatch in testloader:
-        xbatches.append(xbatch)
-        lbatches.append(lbatch)
+    # train = {label: torch.cat(imgs, dim=0) for label, imgs in train}
 
-    data_test   = torch.cat(xbatches, dim=0)
-    labels_test = torch.cat(lbatches, dim=0)
+    test = {label: [] for label in range(10)}
+    for inps, labels in trainloader:
+        b, c, h, w = inps.size()
+        for i in range(b):
+            image = inps[i:i+1, :, :, :]
+            label = labels[i].item()
+            test[label].append(image)
+
+    # train = {label: torch.cat(imgs, dim=0) for label, imgs in train}
+    del b, c, h, w
+
+    torch.manual_seed(arg.seed)
+    np.random.seed(arg.seed)
+    random.seed(arg.seed)
+
+    ndots = arg.iterations // arg.dot_every
+
+    results = np.zeros((arg.reps, ndots))
 
     for r in range(arg.reps):
         print('starting {} out of {} repetitions'.format(r, arg.reps))
-        util.makedirs('./mnistsort/{}'.format( r))
+        util.makedirs('./mnist-sort/{}'.format( r))
 
-        model = dqsort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale,
+        model = sort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale,
                                sigma_floor=arg.min_sigma, certainty=arg.certainty)
 
-        # architecture taken from neuralsort paper
-        c1, c2, h = 32, 64, 64
+        # bottom = nn.Linear(28*28, 32, bias=False)
+        # bottom.weight.retain_grad()
 
-        fin = (arg.digits * 28 // 4) * (28 // 4) * c2
+        # top = nn.Linear(32, 1)
+        # top.weight.retain_grad()
+
+        # tokeys = nn.Sequential(
+        #     util.Flatten(),
+        #     bottom, nn.ReLU(),
+        #     nn.Linear(32, 1)# , nn.BatchNorm1d(1)
+        # )
+
+        # - channel sizes
+        c1, c2, c3 = 16, 64, 128
+        h1, h2 = 256, 128
 
         tokeys = nn.Sequential(
-            util.Lambda(lambda x : x.view(-1, 1, 28, arg.digits * 28)),
-            nn.Conv2d(1, c1, 5, padding=2), nn.ReLU(),
-            nn.MaxPool2d(2),
+            nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
             nn.BatchNorm2d(c1),
-            nn.Conv2d(c1, c2, 5, padding=2), nn.ReLU(),
-            nn.MaxPool2d(2),
+            nn.MaxPool2d((2, 2)),
+            nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
             nn.BatchNorm2d(c2),
+            nn.MaxPool2d((2, 2)),
+            nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+            nn.BatchNorm2d(c3),
+            nn.MaxPool2d((2, 2)),
             util.Flatten(),
-            nn.Linear(fin, 64), nn.ReLU(),
-            nn.Linear(64, 1),
-            util.Lambda(lambda x : x.view(arg.batch, -1))
+            nn.Linear(9 * c3, h1), nn.ReLU(),
+            nn.Linear(h1, h2), nn.ReLU(),
+            nn.Linear(h2, 1)# , nn.BatchNorm1d(1),
         )
 
         if arg.cuda:
@@ -182,9 +184,9 @@ def go(arg):
 
         optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
 
-        for i in range(arg.iterations):
+        for i in trange(arg.iterations):
 
-            x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
+            x, t, l = gen(arg.batch, train, arg.size)
 
             if arg.cuda:
                 x, t = x.cuda(), t.cuda()
@@ -193,7 +195,12 @@ def go(arg):
 
             optimizer.zero_grad()
 
-            keys = tokeys(x)
+            keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
+            keys = keys.view(arg.batch, arg.size)
+
+            # keys = keys * 0.0 + l
+
+            keys.retain_grad()
 
             x = x.view(arg.batch, arg.size, -1)
             t = t.view(arg.batch, arg.size, -1)
@@ -202,6 +209,8 @@ def go(arg):
 
             if arg.loss == 'plain':
                 # just compare the output to the target
+                # loss = F.mse_loss(ys[-1], t) # compute the loss
+                # loss = F.binary_cross_entropy(ys[-1].clamp(0, 1), t.clamp(0, 1))
                 loss = util.xent(ys[-1], t).mean()
             elif arg.loss == 'means':
                 # compare the output to the back-sorted target at each step
@@ -209,7 +218,6 @@ def go(arg):
                 loss = loss + util.xent(ys[0], ts[0]).mean()
                 loss = loss + util.xent(ts[-1], ts[-1]).mean()
 
-                # average over the buckets
                 for d in range(1, len(ys)-1):
                     numbuckets = 2 ** d
                     bucketsize = arg.size // numbuckets
@@ -222,11 +230,13 @@ def go(arg):
 
                     loss = loss + util.xent(xb, tb).mean() * bucketsize
 
-            elif arg.loss == 'separate':
+            elif 'separate':
+                # compare the output to the back-sorted target at each step
                 loss = 0.0
+                loss = loss + util.xent(ts[-1], ts[-1]).mean()
 
-                for d in range(len(ys)):
-                    loss = loss + util.xent(ys[0], ts[0]).mean()
+                for d in range(0, len(ys)):
+                    loss = loss + util.xent(ys[d], ts[d]).mean()
 
             else:
                 raise Exception('Loss {} not recognized.'.format(arg.loss))
@@ -235,21 +245,24 @@ def go(arg):
 
             optimizer.step()
 
-            tbw.add_scalar('mnistsort/loss/{}/{}'.format(arg.size, r), loss.data.item(), i*arg.batch)
+            tbw.add_scalar('mnist-sort/loss/{}/{}'.format(arg.size, r), loss.data.item(), i*arg.batch)
 
-            # Plot intermediate results, and targets
+            # Plot intermediates, and targets
             if i % arg.plot_every == 0:
 
                 optimizer.zero_grad()
 
-                x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
+                x, t, l = gen(arg.batch, train, arg.size)
 
                 if arg.cuda:
                     x, t = x.cuda(), t.cuda()
 
                 x, t = Variable(x), Variable(t)
 
-                keys = tokeys(x)
+                keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
+                keys = keys.view(arg.batch, arg.size)
+
+                # keys = keys * 0.0 + l
 
                 x = x.view(arg.batch, arg.size, -1)
                 t = t.view(arg.batch, arg.size, -1)
@@ -258,22 +271,24 @@ def go(arg):
 
                 b, n, s = ys[0].size()
 
-                for d in range(1, len(ys) - 1):
-                    numbuckets = 2 ** d
-                    bucketsize = arg.size // numbuckets
+                if arg.loss == 'means':
 
-                    xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
-                    tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
+                    for d in range(1, len(ys) - 1):
+                        numbuckets = 2 ** d
+                        bucketsize = arg.size // numbuckets
 
-                    xb = xb.mean(dim=2, keepdim=True)\
-                        .expand(arg.batch, numbuckets, bucketsize, s)\
-                        .contiguous().view(arg.batch, n, s)
-                    tb = tb.mean(dim=2, keepdim=True)\
-                        .expand(arg.batch, numbuckets, bucketsize, s)\
-                        .contiguous().view(arg.batch, n, s)
+                        xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
+                        tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
 
-                    ys[d] = xb
-                    ts[d] = tb
+                        xb = xb.mean(dim=2, keepdim=True)\
+                            .expand(arg.batch, numbuckets, bucketsize, s)\
+                            .contiguous().view(arg.batch, n, s)
+                        tb = tb.mean(dim=2, keepdim=True)\
+                            .expand(arg.batch, numbuckets, bucketsize, s)\
+                            .contiguous().view(arg.batch, n, s)
+
+                        ys[d] = xb
+                        ts[d] = tb
 
                 md = int(np.log2(arg.size))
                 plt.figure(figsize=(arg.size*2, md+1))
@@ -284,28 +299,34 @@ def go(arg):
                         ax = plt.subplot(md+1, arg.size*2, c)
 
                         images = ys[row] if col < arg.size else ts[row]
-                        im = images[0].view(arg.size, 28, arg.digits * 28)[col%arg.size].data.cpu().numpy()
+                        im = images[0].view(arg.size, 28, 28)[col%arg.size].data.cpu().numpy()
 
-                        ax.imshow(im, cmap='gray_r')
+                        ax.imshow(im, cmap= 'bone_r' if col < arg.size else 'pink_r')
+
                         clean(ax)
 
                         c += 1
 
-                plt.savefig('./mnistsort/{}/intermediates.{:04}.pdf'.format(r, i))
+                plt.figtext(0.3, 0.95, "input", va="center", ha="center", size=15)
+                plt.figtext(0.7, 0.95, "target", va="center", ha="center", size=15)
+
+                plt.savefig('./mnist-sort/{}/intermediates.{:04}.pdf'.format(r, i))
 
             # Plot the progress
             if i % arg.plot_every == 0:
 
                 optimizer.zero_grad()
 
-                x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
+                x, t, l = gen(arg.batch, train, arg.size)
 
                 if arg.cuda:
                     x, t = x.cuda(), t.cuda()
 
                 x, t = Variable(x), Variable(t)
 
-                keys = tokeys(x)
+                keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
+                keys = keys.view(arg.batch, arg.size)
+                # keys = keys * 0.01 + l
                 keys.retain_grad()
 
                 x = x.view(arg.batch, arg.size, -1)
@@ -314,27 +335,28 @@ def go(arg):
                 yt, _ = model(x, keys=keys, train=True)
 
                 loss = F.mse_loss(yt, t)  # compute the loss
+
                 loss.backward()
 
                 yi, _ = model(x, keys=keys, train=False)
 
-                input  = x[0].view(arg.size, 28, arg.digits*28)
-                target = t[0].view(arg.size, 28, arg.digits*28)
-                output_inf   = yi[0].view(arg.size, 28, arg.digits*28)
-                output_train = yt[0].view(arg.size, 28, arg.digits*28)
+                input  = x[0].view(arg.size, 28, 28).data.cpu().numpy()
+                target = t[0].view(arg.size, 28, 28).data.cpu().numpy()
+                output_inf   = yi[0].view(arg.size, 28, 28).data.cpu().numpy()
+                output_train = yt[0].view(arg.size, 28, 28).data.cpu().numpy()
 
-                plt.figure(figsize=(arg.size*3*arg.digits, 4*3))
+                plt.figure(figsize=(arg.size*3, 4*3))
                 for col in range(arg.size):
 
                     ax = plt.subplot(4, arg.size, col + 1)
-                    ax.imshow(target[col].data.cpu().numpy())
+                    ax.imshow(target[col], cmap='gray_r')
                     clean(ax)
 
                     if col == 0:
                         ax.set_ylabel('target')
 
                     ax = plt.subplot(4, arg.size, col + arg.size + 1)
-                    ax.imshow(input[col].data.cpu().numpy())
+                    ax.imshow(input[col], cmap='gray_r')
                     clean(ax)
                     ax.set_xlabel( '{:.2}, {:.2}'.format(keys[0, col], - keys.grad[0, col] ) )
 
@@ -342,57 +364,94 @@ def go(arg):
                         ax.set_ylabel('input')
 
                     ax = plt.subplot(4, arg.size, col + arg.size * 2 + 1)
-                    ax.imshow(output_inf[col].data.cpu().numpy())
+                    ax.imshow(output_inf[col], cmap='gray_r')
                     clean(ax)
 
                     if col == 0:
                         ax.set_ylabel('inference')
 
                     ax = plt.subplot(4, arg.size, col + arg.size * 3 + 1)
-                    ax.imshow(output_train[col].data.cpu().numpy())
+                    ax.imshow(output_train[col], cmap='gray_r')
                     clean(ax)
 
                     if col == 0:
                         ax.set_ylabel('training')
 
-                plt.savefig('./mnistsort/{}/mnist.{:04}.pdf'.format(r, i))
+                plt.savefig('./mnist-sort/{}/mnist.{:04}.pdf'.format(r, i))
+
+                # plt.figure(figsize=(6, 2))
+                # ax = plt.subplot(121)
+                # ax.imshow(bottom.weight.data.view(28, 28), cmap='RdYlBu')
+                # # ax.colorbar()
+                # ax = plt.subplot(122)
+                # ax.imshow(bottom.weight.grad.data.view(28, 28), cmap='RdYlBu')
+                # # ax.title('{:.2}-{:.2}'.format(bottom.weight.grad.data.min(), bottom.weight.grad.data.max()))
+                # plt.tight_layout()
+                # plt.savefig('./mnist-sort/{}/weights.{:04}.pdf'.format(r, i))
+
+                # sys.exit()
 
             if i % arg.dot_every == 0:
                 """
                 Compute the accuracy
                 """
-                print('Finished iteration {}, repeat {}/{}, computing accuracy'.format(i, r, arg.reps))
                 NUM = 10_000
-                tot, tot_sub = 0.0, 0.0
-                correct, sub = 0.0, 0.0
-
+                tot = 0.0
+                correct = 0.0
                 with torch.no_grad():
 
-                    for test_size in arg.test_sizes:
-                        for _ in trange(NUM//arg.batch):
-                            x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
+                    losses = []
+                    for ii in range(NUM//arg.batch):
+                        x, t, l = gen(arg.batch, test, arg.size)
 
-                            if arg.cuda:
-                                x, _, l = x.cuda(), t.cuda(), l.cuda()
+                        if arg.cuda:
+                            x, t, l = x.cuda(), t.cuda(), l.cuda()
 
-                            x, l = Variable(x), Variable(l)
+                        x, t, l = Variable(x), Variable(t), Variable(l)
 
-                            keys = tokeys(x)
+                        keys = tokeys(x.view(arg.batch * arg.size, 1, 28, 28))
+                        keys = keys.view(arg.batch, arg.size)
 
-                            # Sort the keys, and sort the labels, and see if the resulting indices match
-                            _, gold = torch.sort(l, dim=1)
-                            _, mine = torch.sort(keys, dim=1)
+                        # Sort the keys, and sort the labels, and see if the resulting indices match
+                        _, gold = torch.sort(l, dim=1)
+                        _, mine = torch.sort(keys, dim=1)
 
-                            tot += x.size(0)
-                            correct += ((gold != mine).sum(dim=1) == 0).sum().item()
+                        tot += x.size(0)
+                        correct += ((gold != mine).sum(dim=1) == 0).sum().item()
 
-                            sub += (gold == mine).sum()
-                            tot_sub += util.prod(gold.size())
+                    print('acc', correct/tot)
 
-                        print('test size {}, accuracy {:.5} ({:.5})'.format( test_size, correct/tot, float(sub)/tot_sub) )
+                    results[r, i//arg.dot_every] = np.mean(correct/tot)
 
-                    tbw.add_scalar('mnistsort/testloss/{}/{}'.format(arg.size, r), correct/tot, i * arg.batch)
+                    tbw.add_scalar('mnist-sort/testloss/{}/{}'.format(arg.size, r), correct/tot, i * arg.batch)
 
+    np.save('results.{}.np'.format(arg.size), results)
+    print('experiments finished')
+
+    plt.figure(figsize=(10, 5))
+    ax = plt.gca()
+
+    if results.shape[0] > 1:
+        ax.errorbar(x=np.arange(ndots) * arg.dot_every, y=np.mean(results[:, :], axis=0),
+                        yerr=np.std(results[:, :], axis=0),
+                        label='size {0}x{0}, r={1}'.format(arg.size, arg.reps))
+    else:
+        ax.plot(np.arange(ndots) * arg.dot_every, np.mean(results[:, :], axis=0),
+                        label='size {0}x{0}'.format(arg.size))
+
+    ax.legend()
+
+    util.basic(ax)
+
+    ax.spines['bottom'].set_position('zero')
+    ax.set_ylim(0.0, 1.0)
+#    ax.set_xlim(0.0, 100.0)
+
+    plt.xlabel('iterations')
+    plt.ylabel('error')
+
+    plt.savefig('./quicksort/result.png')
+    plt.savefig('./quicksort/result.pdf')
 
 if __name__ == "__main__":
 
@@ -402,18 +461,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--size",
                         dest="size",
                         help="Dimensionality of the input.",
-                        default=128, type=int)
-
-    parser.add_argument("--test-sizes",
-                        dest="test_sizes",
-                        nargs="+",
-                        help="Dimensionality of the test data (default is same as the input data).",
-                        default=[4, 8, 16, 32], type=int)
-
-    parser.add_argument("-w", "--width",
-                        dest="digits",
-                        help="Number of digits in each number sampled.",
-                        default=3, type=int)
+                        default=8, type=int)
 
     parser.add_argument("-b", "--batch-size",
                         dest="batch",
@@ -472,7 +520,7 @@ if __name__ == "__main__":
     parser.add_argument("-R", "--repeats",
                         dest="reps",
                         help="Number of repeats.",
-                        default=1, type=int)
+                        default=10, type=int)
 
     parser.add_argument("-M", "--min-sigma",
                         dest="min_sigma",
@@ -490,8 +538,8 @@ if __name__ == "__main__":
 
     parser.add_argument("-I", "--loss",
                         dest="loss",
-                        help="Whether to backwards-sort the target to provide a loss at every step.",
-                        default="separate", type=str)
+                        help="Whether to backwards-sort the target to provide a loss at every step. (plain, means, separate)",
+                        default='plain', type=str)
 
 
     options = parser.parse_args()
