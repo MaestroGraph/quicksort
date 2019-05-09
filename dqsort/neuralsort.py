@@ -28,7 +28,7 @@ class NeuralSort (torch.nn.Module):
 
         A_scores = torch.abs(scores - scores.permute(0, 2, 1))
         B = torch.matmul(A_scores, torch.matmul(one, torch.transpose(one, 0, 1)))
-        scaling = (dim + 1 - 2 * (torch.arange(dim) + 1)).type(torch.float)
+        scaling = (dim + 1 - 2 * (torch.arange(dim, device=dv) + 1)).type(torch.float)
         C = torch.matmul(scores, scaling.unsqueeze(0))
 
         P_max = (C - B).permute(0, 2, 1)
@@ -38,10 +38,10 @@ class NeuralSort (torch.nn.Module):
         if self.hard:
             P = torch.zeros_like(P_hat, device=dv)
 
-            b_idx = torch.arange(bsize).repeat([1, dim]).view(dim, bsize)
-            b_idx = b_idx.transpose(dim0=1, dim1=0).flatten().type(torch.cuda.LongTensor)
+            b_idx = torch.arange(bsize, device=dv).repeat([1, dim]).view(dim, bsize)
+            b_idx = b_idx.transpose(dim0=1, dim1=0).flatten().type(torch.long)
 
-            r_idx = torch.arange(dim).repeat([bsize, 1]).flatten().type(torch.cuda.LongTensor)
+            r_idx = torch.arange(dim, device=dv).repeat([bsize, 1]).flatten().type(torch.long)
             c_idx = torch.argmax(P_hat, dim=-1).flatten()  # this is on cuda
             brc_idx = torch.stack((b_idx, r_idx, c_idx))
 
