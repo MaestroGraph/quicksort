@@ -14,8 +14,9 @@ class NeuralSort (torch.nn.Module):
         self.hard = hard
         self.tau = tau
 
-    def forward(self, input : Tensor, scores: Tensor, cuda=False):
+    def forward(self, input : Tensor, scores: Tensor, cuda=None):
 
+        cuda = input.is_cuda if cuda is None else cuda
         dv = 'cuda' if cuda else 'cpu'
 
         # scores: elements to be sorted. Typical shape: batch_size x n x 1
