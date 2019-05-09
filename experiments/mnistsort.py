@@ -219,7 +219,7 @@ def go(arg):
 
         optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
 
-        for i in range(arg.iterations):
+        for i in trange(arg.iterations):
 
             x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
 
@@ -413,7 +413,7 @@ def go(arg):
                 with torch.no_grad():
 
                     for test_size in arg.test_sizes:
-                        for _ in trange(NUM//arg.batch):
+                        for _ in range(NUM//arg.batch):
                             x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
 
                             if arg.cuda:
