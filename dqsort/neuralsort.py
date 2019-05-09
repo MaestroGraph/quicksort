@@ -15,6 +15,13 @@ class NeuralSort (torch.nn.Module):
         self.tau = tau
 
     def forward(self, input : Tensor, scores: Tensor, cuda=None):
+        """
+
+        :param input:
+        :param scores: logits of the scores by which the elements in input should be sorted.
+        :param cuda:
+        :return:
+        """
 
         cuda = input.is_cuda if cuda is None else cuda
         dv = 'cuda' if cuda else 'cpu'
@@ -25,6 +32,8 @@ class NeuralSort (torch.nn.Module):
 
         #one = torch.cuda.FloatTensor(dim, 1).fill_(1)
         one = torch.ones(dim, 1, device=dv)
+
+        scores = torch.exp(scores)
 
         A_scores = torch.abs(scores - scores.permute(0, 2, 1))
         B = torch.matmul(A_scores, torch.matmul(one, torch.transpose(one, 0, 1)))
