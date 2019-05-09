@@ -30,6 +30,7 @@ tbw = SummaryWriter()
 
 util.DEBUG = False
 BUCKET_SIGMA = 0.05
+TAU = 16.0
 
 def clean(axes=None):
 
@@ -154,8 +155,11 @@ def go(arg):
         print('starting {} out of {} repetitions'.format(r, arg.reps))
         util.makedirs('./mnistsort/{}'.format( r))
 
-        model = dqsort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale,
+        if arg.sort_method == 'quicksort':
+            model = dqsort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale,
                                sigma_floor=arg.min_sigma, certainty=arg.certainty)
+        else:
+            model = dqsort.NeuralSort(tau=TAU)
 
         if arg.model == 'original':
             # architecture taken from neuralsort paper
@@ -209,7 +213,6 @@ def go(arg):
         else:
             raise Exception('Model {} not recognized.'.format(arg.model))
 
-
         if arg.cuda:
             model.cuda()
             tokeys.cuda()
@@ -232,11 +235,18 @@ def go(arg):
             x = x.view(arg.batch, arg.size, -1)
             t = t.view(arg.batch, arg.size, -1)
 
-            ys, ts, keys = model(x, keys=keys, target=t)
+            if type(model) == dqsort.SortLayer:
+                ys, ts, keys = model(x, keys=keys, target=t)
+            else:
+                ys = model(x, keys)
 
-            if arg.loss == 'plain':
+            if  arg.sort_method == 'neuralsort':
+                loss = util.xent(ys, t).mean()
+
+            elif arg.loss == 'plain':
                 # just compare the output to the target
                 loss = util.xent(ys[-1], t).mean()
+
             elif arg.loss == 'means':
                 # compare the output to the back-sorted target at each step
                 loss = 0.0
@@ -272,7 +282,7 @@ def go(arg):
             tbw.add_scalar('mnistsort/loss/{}/{}'.format(arg.size, r), loss.data.item(), i*arg.batch)
 
             # Plot intermediate results, and targets
-            if i % arg.plot_every == 0:
+            if i % arg.plot_every == 0 and arg.sort_method == 'quicksort':
 
                 optimizer.zero_grad()
 
@@ -328,7 +338,7 @@ def go(arg):
                 plt.savefig('./mnistsort/{}/intermediates.{:04}.pdf'.format(r, i))
 
             # Plot the progress
-            if i % arg.plot_every == 0:
+            if i % arg.plot_every == 0 and arg.sort_method == 'quicksort':
 
                 optimizer.zero_grad()
 
@@ -437,6 +447,11 @@ if __name__ == "__main__":
                         dest="model",
                         help="Whether to use the original model, or a bigger version.",
                         default='original', type=str)
+
+    parser.add_argument("--sort",
+                        dest="sort_method",
+                        help="Whether to use the baseline (NeuralSort), or Quicksort.",
+                        default='quicksort', type=str)
 
     parser.add_argument("-s", "--size",
                         dest="size",

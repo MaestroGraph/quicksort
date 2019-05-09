@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from torch import nn
+from torch import nn, Tensor
 
 import util, tensors
 import numpy as np
@@ -148,7 +148,7 @@ class SortLayer(nn.Module):
         #     nn.Sigmoid()
         # )
 
-    def forward(self, x, keys, target=None, train=True, verbose=False):
+    def forward(self, x : Tensor, keys : Tensor, target=None, train=True, verbose=False):
 
         xs = [x]
         targets = [target]
