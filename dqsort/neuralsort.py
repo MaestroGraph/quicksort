@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+from torch.nn import functional as F
 
 import sys
 """
@@ -75,6 +76,8 @@ def det_neuralsort(s, tau, cuda=None):
 
     n = s.size()[1]
 
+    s = torch.exp(s)
+
     one = torch.ones((n, 1), dtype = torch.float32, device=dv)
     A_s = torch.abs(s - s.permute(0, 2, 1))
     B = torch.matmul(A_s, torch.matmul(one, torch.transpose(one, 0, 1)))
@@ -83,7 +86,6 @@ def det_neuralsort(s, tau, cuda=None):
     C = torch.matmul(s, scaling.unsqueeze(0))
     P_max = (C - B).permute(0, 2, 1)
 
-    sm = torch.nn.Softmax(-1)
-    P_hat = sm(P_max / tau)
+    P_hat = F.softmax(P_max / tau, dim=-1)
 
     return P_hat

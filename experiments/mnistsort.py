@@ -10,7 +10,7 @@ from tensorboardX import SummaryWriter
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import logging, time, gc
+import logging, time, gc, sys
 from dqsort import util
 import numpy as np
 
@@ -171,14 +171,15 @@ def go(arg):
                 util.Lambda(lambda x : x.view(-1, 1, 28, arg.digits * 28)),
                 nn.Conv2d(1, c1, 5, padding=2), nn.ReLU(),
                 nn.MaxPool2d(2),
-                nn.BatchNorm2d(c1),
+                nn.BatchNorm2d(c1) if arg.batch_norm else util.Lambda(lambda x:x),
                 nn.Conv2d(c1, c2, 5, padding=2), nn.ReLU(),
                 nn.MaxPool2d(2),
-                nn.BatchNorm2d(c2),
+                nn.BatchNorm2d(c2) if arg.batch_norm else util.Lambda(lambda x:x),
                 util.Flatten(),
                 nn.Linear(fin, 64), nn.ReLU(),
                 nn.Linear(64, 1),
-                util.Lambda(lambda x : x.view(arg.batch, -1))
+                util.Lambda(lambda x : x.view(arg.batch, -1)),
+                util.Lambda(lambda x : x * arg.key_mult)
             )
         elif arg.model == 'big':
             # - channel sizes
@@ -192,22 +193,23 @@ def go(arg):
                 nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
                 nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
                 nn.Conv2d(c1, c1, (3, 3), padding=1, bias=False), nn.ReLU(),
-                nn.BatchNorm2d(c1),
+                nn.BatchNorm2d(c1) if arg.batch_norm else util.Lambda(lambda x: x),
                 nn.MaxPool2d((2, 2)),
                 nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
                 nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
                 nn.Conv2d(c2, c2, (3, 3), padding=1, bias=False), nn.ReLU(),
-                nn.BatchNorm2d(c2),
+                nn.BatchNorm2d(c2) if arg.batch_norm else util.Lambda(lambda x: x),
                 nn.MaxPool2d((2, 2)),
                 nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
                 nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
                 nn.Conv2d(c3, c3, (3, 3), padding=1, bias=False), nn.ReLU(),
-                nn.BatchNorm2d(c3),
+                nn.BatchNorm2d(c3) if arg.batch_norm else util.Lambda(lambda x: x),
                 nn.MaxPool2d((2, 2)),
                 util.Flatten(),
                 nn.Linear(fin, out), nn.ReLU(),
                 nn.Linear(out, 1),
-                util.Lambda(lambda x : x.view(arg.batch, -1))
+                util.Lambda(lambda x : x.view(arg.batch, -1)),
+                util.Lambda(lambda x : x * arg.key_mult)
             )
 
         else:
@@ -239,6 +241,12 @@ def go(arg):
                 ys, ts, keys = model(x, keys=keys, target=t)
             else:
                 ys, phat = model(x, keys)
+                #
+                # print(keys[0])
+                # print(phat[0])
+                # print(dqsort.det_neuralsort(keys[:, :, None], arg.temp)[0])
+                # print(dqsort.det_neuralsort(keys[:, :, None] * 50.0, arg.temp)[0])
+                # sys.exit()
 
             if arg.sort_method == 'neuralsort' and arg.loss == 'plain':
                 loss = util.xent(ys, t).mean()
@@ -546,6 +554,11 @@ if __name__ == "__main__":
                         help="Sigma floor (minimum sigma value).",
                         default=0.0, type=float)
 
+    parser.add_argument("--key-mult",
+                        dest="key_mult",
+                        help="multiplier for the keys (helps with the gradient)",
+                        default=1.0, type=float)
+
     parser.add_argument("-L", "--limit",
                         dest="limit",
                         help="Limit on the nr ofexamples per class (for debugging).",
@@ -553,6 +566,11 @@ if __name__ == "__main__":
 
     parser.add_argument("-f", "--final", dest="final",
                         help="Whether to run on the real test set.",
+                        action="store_true")
+
+    parser.add_argument("--batch-norm",
+                        dest="batch_norm",
+                        help="Whether to use batch normalization in the key net.",
                         action="store_true")
 
     parser.add_argument("-I", "--loss",
