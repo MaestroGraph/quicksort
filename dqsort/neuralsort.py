@@ -61,4 +61,4 @@ class NeuralSort (torch.nn.Module):
         b, s, z = input.size()
         out = torch.bmm(P_hat, input)
 
-        return out
+        return out, P_hat

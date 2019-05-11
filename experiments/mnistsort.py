@@ -238,10 +238,14 @@ def go(arg):
             if type(model) == dqsort.SortLayer:
                 ys, ts, keys = model(x, keys=keys, target=t)
             else:
-                ys = model(x, keys)
+                ys, phat = model(x, keys)
 
-            if  arg.sort_method == 'neuralsort':
+            if  arg.sort_method == 'neuralsort' and arg.loss == 'plain':
                 loss = util.xent(ys, t).mean()
+
+            elif arg.sort_method == 'neuralsort' and arg.loss == 'xent':
+                _, gold = torch.sort(l, dim=1)
+                loss = F.cross_entropy(phat, gold)
 
             elif arg.loss == 'plain':
                 # just compare the output to the target
