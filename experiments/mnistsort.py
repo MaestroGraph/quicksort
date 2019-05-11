@@ -224,7 +224,7 @@ def go(arg):
             x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
 
             if arg.cuda:
-                x, t = x.cuda(), t.cuda()
+                x, t, l = x.cuda(), t.cuda(), l.cuda()
 
             x, t = Variable(x), Variable(t)
 
