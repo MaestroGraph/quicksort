@@ -26,11 +26,11 @@ LOG = logging.getLogger()
 Experiment: learn to sort numbers consisting of multiple MNIST digits.
 
 """
+
 tbw = SummaryWriter()
 
 util.DEBUG = False
 BUCKET_SIGMA = 0.05
-TAU = 16.0
 
 def clean(axes=None):
 
@@ -159,7 +159,7 @@ def go(arg):
             model = dqsort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale,
                                sigma_floor=arg.min_sigma, certainty=arg.certainty)
         else:
-            model = dqsort.NeuralSort(tau=TAU)
+            model = dqsort.NeuralSort(tau=arg.temp)
 
         if arg.model == 'original':
             # architecture taken from neuralsort paper
@@ -240,7 +240,7 @@ def go(arg):
             else:
                 ys, phat = model(x, keys)
 
-            if  arg.sort_method == 'neuralsort' and arg.loss == 'plain':
+            if arg.sort_method == 'neuralsort' and arg.loss == 'plain':
                 loss = util.xent(ys, t).mean()
 
             elif arg.sort_method == 'neuralsort' and arg.loss == 'xent':
@@ -417,7 +417,7 @@ def go(arg):
                 with torch.no_grad():
 
                     for test_size in arg.test_sizes:
-                        for _ in range(NUM//arg.batch):
+                        for ii in range(NUM//arg.batch):
                             x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
 
                             if arg.cuda:
@@ -431,6 +431,11 @@ def go(arg):
                             _, gold = torch.sort(l, dim=1)
                             _, mine = torch.sort(keys, dim=1)
 
+                            if ii == 0:
+                                print('keys:', keys[0])
+                                print('gold:', gold[0])
+                                print('mine:', mine[0])
+
                             tot += x.size(0)
                             correct += ((gold != mine).sum(dim=1) == 0).sum().item()
 
@@ -438,8 +443,7 @@ def go(arg):
                             tot_sub += util.prod(gold.size())
 
                         print('test size {}, accuracy {:.5} ({:.5})'.format( test_size, correct/tot, float(sub)/tot_sub) )
-
-                    tbw.add_scalar('mnistsort/testloss/{}/{}'.format(arg.size, r), correct/tot, i * arg.batch)
+                        tbw.add_scalar('mnistsort/test-acc/{}/{}'.format(test_size, r), correct/tot, i * arg.batch)
 
 
 if __name__ == "__main__":
@@ -531,6 +535,11 @@ if __name__ == "__main__":
                         dest="reps",
                         help="Number of repeats.",
                         default=1, type=int)
+
+    parser.add_argument("-T", "--temperature",
+                        dest="temp",
+                        help="Temperature for the neuralsort baseline.",
+                        default=16, type=int)
 
     parser.add_argument("-M", "--min-sigma",
                         dest="min_sigma",

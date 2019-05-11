@@ -62,3 +62,28 @@ class NeuralSort (torch.nn.Module):
         out = torch.bmm(P_hat, input)
 
         return out, P_hat
+
+def det_neuralsort(s, tau, cuda=None):
+    """
+    Code adapted from the paper.
+
+    s: input elements to be sorted. Shape: batch_size x n x 1
+    tau: temperature for relaxation. Scalar.
+    """
+    cuda = s.is_cuda if cuda is None else cuda
+    dv = 'cuda' if cuda else 'cpu'
+
+    n = s.size()[1]
+
+    one = torch.ones((n, 1), dtype = torch.float32, device=dv)
+    A_s = torch.abs(s - s.permute(0, 2, 1))
+    B = torch.matmul(A_s, torch.matmul(one, torch.transpose(one, 0, 1)))
+    scaling = (n + 1 - 2 * (torch.arange(n, device=dv) + 1)).type(torch.float32)
+
+    C = torch.matmul(s, scaling.unsqueeze(0))
+    P_max = (C - B).permute(0, 2, 1)
+
+    sm = torch.nn.Softmax(-1)
+    P_hat = sm(P_max / tau)
+
+    return P_hat
