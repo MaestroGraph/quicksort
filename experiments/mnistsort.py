@@ -431,10 +431,10 @@ def go(arg):
                             _, gold = torch.sort(l, dim=1)
                             _, mine = torch.sort(keys, dim=1)
 
-                            if ii == 0:
-                                print('keys:', keys[0])
-                                print('gold:', gold[0])
-                                print('mine:', mine[0])
+                            # if ii == 0:
+                            #     print('keys:', keys[0])
+                            #     print('gold:', gold[0])
+                            #     print('mine:', mine[0])
 
                             tot += x.size(0)
                             correct += ((gold != mine).sum(dim=1) == 0).sum().item()
