@@ -11,7 +11,7 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 import logging, time, gc, sys
-from dqsort import util
+from dqsort import util, det_neuralsort
 import numpy as np
 
 from argparse import ArgumentParser
@@ -233,6 +233,7 @@ def go(arg):
             optimizer.zero_grad()
 
             keys = tokeys(x)
+            keys.retain_grad()
 
             x = x.view(arg.batch, arg.size, -1)
             t = t.view(arg.batch, arg.size, -1)
@@ -241,19 +242,13 @@ def go(arg):
                 ys, ts, keys = model(x, keys=keys, target=t)
             else:
                 ys, phat = model(x, keys)
-                #
-                # print(keys[0])
-                # print(phat[0])
-                # print(dqsort.det_neuralsort(keys[:, :, None], arg.temp)[0])
-                # print(dqsort.det_neuralsort(keys[:, :, None] * 50.0, arg.temp)[0])
-                # sys.exit()
 
             if arg.sort_method == 'neuralsort' and arg.loss == 'plain':
                 loss = util.xent(ys, t).mean()
 
             elif arg.sort_method == 'neuralsort' and arg.loss == 'xent':
                 _, gold = torch.sort(l, dim=1)
-                loss = F.cross_entropy(phat, gold)
+                loss = F.cross_entropy(phat.permute(0, 2, 1), gold)
 
             elif arg.loss == 'plain':
                 # just compare the output to the target
