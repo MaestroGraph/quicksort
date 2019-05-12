@@ -160,8 +160,8 @@ def go(arg):
 
     tr = lambda n : int((n*n - n) // 2)
     train_size = TRAIN_SIZE // tr(arg.size) # reduce the train size, to make the number of pair comparisons constant
-    test_size  = TEST_SIZE # note that we don't reduce the test size, because that would just make our accuracy
-                           # estimate less precise
+    # note that we only fix the training size to a given number. The test set is re-sampled each time, because it just
+    # improves the accuracy estimate
 
     print('training on {} unique permutations of size {}.'.format(train_size, arg.size))
 
@@ -170,10 +170,6 @@ def go(arg):
     s = arg.digits * arg.size
     train_perms = [rand.choices(range(data.size(0)), k=s) for _ in range(train_size)]
 
-    if arg.final:
-        rand = random.Random(DATA_SEED + 1)
-
-    test_perms = [rand.choices(range(data_test.size(0)), k=s) for _ in range(test_size)]
 
     for r in range(arg.reps):
         print('starting {} out of {} repetitions'.format(r, arg.reps))
@@ -452,7 +448,7 @@ def go(arg):
                     tot, tot_sub = 0.0, 0.0
                     correct, sub = 0.0, 0.0
 
-                    for fr in range(0, test_size, arg.batch):
+                    for fr in range(0, TEST_SIZE, arg.batch):
 
                         x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
 
