@@ -431,6 +431,9 @@ def go(arg):
 
                             keys = tokeys(x)
 
+                            if arg.sort_method == 'neuralsort':
+                                keys = - keys
+
                             # Sort the keys, and sort the labels, and see if the resulting indices match
                             _, gold = torch.sort(l, dim=1)
                             _, mine = torch.sort(keys, dim=1)
