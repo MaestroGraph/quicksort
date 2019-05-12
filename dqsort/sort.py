@@ -162,6 +162,7 @@ class SortLayer(nn.Module):
         for d, split in enumerate(self.layers):
 
             buckets = keys[:, :, None].view(b, 2**d, -1)
+            # TODO: if you set batchsize=1, you get an error here, because the batch dim gets squeezed out in the split layer
 
             # compute pivots
             pivots = buckets.view(b*2**d, -1)
