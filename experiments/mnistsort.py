@@ -85,6 +85,66 @@ def gen(b, data, labels, size, digits, inds=None):
 
     return x, t, l
 
+class Keynet(nn.Module):
+
+    def __init__(self, batchnorm=False, small=True, num_digits=4):
+        super().__init__()
+
+        if small:
+            # architecture taken from neuralsort paper
+            c1, c2, h = 32, 64, 64
+
+            fin = (num_digits * 28 // 4) * (28 // 4) * c2
+
+            self.tokeys = nn.Sequential(
+                nn.Conv2d(1, c1, 5, padding=2), nn.ReLU(),
+                nn.MaxPool2d(2),
+                nn.BatchNorm2d(c1) if batchnorm else util.Lambda(lambda x: x),
+                nn.Conv2d(c1, c2, 5, padding=2), nn.ReLU(),
+                nn.MaxPool2d(2),
+                nn.BatchNorm2d(c2) if batchnorm else util.Lambda(lambda x: x),
+                util.Flatten(),
+                nn.Linear(fin, 64), nn.ReLU(),
+                nn.Linear(64, 1)
+            )
+
+        else:
+            # - channel sizes
+            c1, c2, c3 = 16, 128, 512
+            h1, h2, out = 256, 128, 8
+
+            fin = (num_digits * 28 // 8) * (28 // 8) * c3
+
+            self.tokeys = nn.Sequential(
+                nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c1, c1, (3, 3), padding=1, bias=False), nn.ReLU(),
+                nn.BatchNorm2d(c1) if batchnorm else util.Lambda(lambda x: x),
+                nn.MaxPool2d((2, 2)),
+                nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c2, c2, (3, 3), padding=1, bias=False), nn.ReLU(),
+                nn.BatchNorm2d(c2) if batchnorm else util.Lambda(lambda x: x),
+                nn.MaxPool2d((2, 2)),
+                nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
+                nn.Conv2d(c3, c3, (3, 3), padding=1, bias=False), nn.ReLU(),
+                nn.BatchNorm2d(c3) if batchnorm else util.Lambda(lambda x: x),
+                nn.MaxPool2d((2, 2)),
+                util.Flatten(),
+                nn.Linear(fin, out), nn.ReLU(),
+                nn.Linear(out, 1)
+            )
+
+    def forward(self, x):
+        b, n = x.size(0), x.size(1)
+
+        x = x.view(b * n, 1, 28, -1)
+        y = self.tokeys(x)
+
+        return y.view(b, n)
+
+
 # def plotn(data, ax):
 #
 #     n = data.size(0)
@@ -182,56 +242,9 @@ def go(arg):
             model = dqsort.NeuralSort(tau=arg.temp)
 
         if arg.model == 'original':
-            # architecture taken from neuralsort paper
-            c1, c2, h = 32, 64, 64
-
-            fin = (arg.digits * 28 // 4) * (28 // 4) * c2
-
-            tokeys = nn.Sequential(
-                util.Lambda(lambda x : x.view(-1, 1, 28, arg.digits * 28)),
-                nn.Conv2d(1, c1, 5, padding=2), nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.BatchNorm2d(c1) if arg.batch_norm else util.Lambda(lambda x:x),
-                nn.Conv2d(c1, c2, 5, padding=2), nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.BatchNorm2d(c2) if arg.batch_norm else util.Lambda(lambda x:x),
-                util.Flatten(),
-                nn.Linear(fin, 64), nn.ReLU(),
-                nn.Linear(64, 1),
-                util.Lambda(lambda x : x.view(arg.batch, -1)),
-                util.Lambda(lambda x : x * arg.key_mult)
-            )
+           tokeys = Keynet(batchnorm=arg.batch_norm, small=True, num_digits=arg.digits)
         elif arg.model == 'big':
-            # - channel sizes
-            c1, c2, c3 = 16, 128, 512
-            h1, h2, out = 256, 128, 8
-
-            fin = (arg.digits * 28 // 8) * (28 // 8) * c3
-
-            tokeys = nn.Sequential(
-                util.Lambda(lambda x: x.view(-1, 1, 28, arg.digits * 28)),
-                nn.Conv2d(1, c1, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c1, c1, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c1, c1, (3, 3), padding=1, bias=False), nn.ReLU(),
-                nn.BatchNorm2d(c1) if arg.batch_norm else util.Lambda(lambda x: x),
-                nn.MaxPool2d((2, 2)),
-                nn.Conv2d(c1, c2, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c2, c2, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c2, c2, (3, 3), padding=1, bias=False), nn.ReLU(),
-                nn.BatchNorm2d(c2) if arg.batch_norm else util.Lambda(lambda x: x),
-                nn.MaxPool2d((2, 2)),
-                nn.Conv2d(c2, c3, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c3, c3, (3, 3), padding=1), nn.ReLU(),
-                nn.Conv2d(c3, c3, (3, 3), padding=1, bias=False), nn.ReLU(),
-                nn.BatchNorm2d(c3) if arg.batch_norm else util.Lambda(lambda x: x),
-                nn.MaxPool2d((2, 2)),
-                util.Flatten(),
-                nn.Linear(fin, out), nn.ReLU(),
-                nn.Linear(out, 1),
-                util.Lambda(lambda x : x.view(arg.batch, -1)),
-                util.Lambda(lambda x : x * arg.key_mult)
-            )
-
+           tokeys = Keynet(batchnorm=arg.batch_norm, small=False, num_digits=arg.digits)
         else:
             raise Exception('Model {} not recognized.'.format(arg.model))
 
@@ -252,6 +265,8 @@ def go(arg):
 
                 x, t, l = gen(to-fr, data, labels, arg.size, arg.digits, inds=ind)
 
+                b = x.size(0)
+
                 if arg.cuda:
                     x, t, l = x.cuda(), t.cuda(), l.cuda()
 
@@ -261,8 +276,8 @@ def go(arg):
 
                 keys = tokeys(x)
 
-                x = x.view(arg.batch, arg.size, -1)
-                t = t.view(arg.batch, arg.size, -1)
+                x = x.view(b, arg.size, -1)
+                t = t.view(b, arg.size, -1)
 
                 if type(model) == dqsort.SortLayer:
                     ys, ts, keys = model(x, keys=keys, target=t)
@@ -292,8 +307,8 @@ def go(arg):
                         numbuckets = 2 ** d
                         bucketsize = arg.size // numbuckets
 
-                        xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, -1)
-                        tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, -1)
+                        xb = ys[d][:, None, :, :].view(b, numbuckets, bucketsize, -1)
+                        tb = ts[d][:, None, :, :].view(b, numbuckets, bucketsize, -1)
 
                         xb = xb.mean(dim=2)
                         tb = tb.mean(dim=2)
