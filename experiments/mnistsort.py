@@ -250,7 +250,7 @@ def go(arg):
                 ind = train_perms[fr:to]
                 ind = [item for sublist in ind for item in sublist] # flatten
 
-                x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits, inds=ind)
+                x, t, l = gen(to-fr, data, labels, arg.size, arg.digits, inds=ind)
 
                 if arg.cuda:
                     x, t, l = x.cuda(), t.cuda(), l.cuda()
