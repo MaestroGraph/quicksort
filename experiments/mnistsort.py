@@ -451,44 +451,45 @@ def go(arg):
             #
             #     plt.savefig('./mnistsort/{}/mnist.{:04}.pdf'.format(r, i))
 
-            """
-            Compute the accuracy
-            """
-            print('computing accuracy')
+            if e % arg.dot_every == 0:
+                """
+                Compute the accuracy
+                """
+                print('computing accuracy')
 
-            with torch.no_grad():
+                with torch.no_grad():
 
-                for test_size in arg.test_sizes:
+                    for test_size in arg.test_sizes:
 
-                    tot, tot_sub = 0.0, 0.0
-                    correct, sub = 0.0, 0.0
+                        tot, tot_sub = 0.0, 0.0
+                        correct, sub = 0.0, 0.0
 
-                    for fr in range(0, TEST_SIZE, arg.batch):
+                        for fr in range(0, TEST_SIZE, arg.batch):
 
-                        x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
+                            x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
 
-                        if arg.cuda:
-                            x, _, l = x.cuda(), t.cuda(), l.cuda()
+                            if arg.cuda:
+                                x, _, l = x.cuda(), t.cuda(), l.cuda()
 
-                        x, l = Variable(x), Variable(l)
+                            x, l = Variable(x), Variable(l)
 
-                        keys = tokeys(x)
+                            keys = tokeys(x)
 
-                        if arg.sort_method == 'neuralsort':
-                            keys = - keys
+                            if arg.sort_method == 'neuralsort':
+                                keys = - keys
 
-                        # Sort the keys, and sort the labels, and see if the resulting indices match
-                        _, gold = torch.sort(l, dim=1)
-                        _, mine = torch.sort(keys, dim=1)
+                            # Sort the keys, and sort the labels, and see if the resulting indices match
+                            _, gold = torch.sort(l, dim=1)
+                            _, mine = torch.sort(keys, dim=1)
 
-                        tot += x.size(0)
-                        correct += ((gold != mine).sum(dim=1) == 0).sum().item()
+                            tot += x.size(0)
+                            correct += ((gold != mine).sum(dim=1) == 0).sum().item()
 
-                        sub += (gold == mine).sum()
-                        tot_sub += util.prod(gold.size())
+                            sub += (gold == mine).sum()
+                            tot_sub += util.prod(gold.size())
 
-                    print('test size {}, accuracy {:.5} ({:.5})'.format( test_size, correct/tot, float(sub)/tot_sub) )
-                    tbw.add_scalar('mnistsort/test-acc/{}/{}'.format(test_size, r), correct/tot, e)
+                        print('test size {}, accuracy {:.5} ({:.5})'.format( test_size, correct/tot, float(sub)/tot_sub) )
+                        tbw.add_scalar('mnistsort/test-acc/{}/{}'.format(test_size, r), correct/tot, e)
 
 
 if __name__ == "__main__":
@@ -558,8 +559,8 @@ if __name__ == "__main__":
 
     parser.add_argument("-d", "--dot-every",
                         dest="dot_every",
-                        help="How many iterations per dot in the loss curves.",
-                        default=1000, type=int)
+                        help="How many epochs between computing the accuracy",
+                        default=5, type=int)
 
     parser.add_argument("-D", "--data",
                         dest="data",
@@ -614,7 +615,6 @@ if __name__ == "__main__":
                         dest="loss",
                         help="Whether to backwards-sort the target to provide a loss at every step.",
                         default="separate", type=str)
-
 
     options = parser.parse_args()
 
