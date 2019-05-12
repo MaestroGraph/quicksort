@@ -42,6 +42,9 @@ class NeuralSort (torch.nn.Module):
         C = torch.matmul(scores, scaling.unsqueeze(0))
 
         P_max = (C - B).permute(0, 2, 1)
+
+        P_hat_raw = P_max / self.tau
+
         sm = torch.nn.Softmax(-1)
         P_hat = sm(P_max / self.tau)
 
@@ -62,7 +65,7 @@ class NeuralSort (torch.nn.Module):
         b, s, z = input.size()
         out = torch.bmm(P_hat, input)
 
-        return out, P_hat
+        return out, P_hat, P_hat_raw
 
 def det_neuralsort(s, tau, cuda=None):
     """

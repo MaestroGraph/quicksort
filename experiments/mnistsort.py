@@ -241,14 +241,15 @@ def go(arg):
             if type(model) == dqsort.SortLayer:
                 ys, ts, keys = model(x, keys=keys, target=t)
             else:
-                ys, phat = model(x, keys)
+                ys, phat, phatraw = model(x, keys)
 
             if arg.sort_method == 'neuralsort' and arg.loss == 'plain':
                 loss = util.xent(ys, t).mean()
 
             elif arg.sort_method == 'neuralsort' and arg.loss == 'xent':
+
                 _, gold = torch.sort(l, dim=1)
-                loss = F.cross_entropy(phat.permute(0, 2, 1), gold)
+                loss = F.cross_entropy(phatraw.permute(0, 2, 1), gold)
 
             elif arg.loss == 'plain':
                 # just compare the output to the target
@@ -412,7 +413,7 @@ def go(arg):
                 """
                 Compute the accuracy
                 """
-                print('Finished iteration {}, repeat {}/{}, computing accuracy'.format(i, r, arg.reps))
+                print('Seen {} instances, repeat {}/{}, computing accuracy'.format(i, r, arg.reps))
                 NUM = 10_000
                 tot, tot_sub = 0.0, 0.0
                 correct, sub = 0.0, 0.0
