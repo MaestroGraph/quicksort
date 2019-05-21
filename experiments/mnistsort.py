@@ -334,7 +334,7 @@ def go(arg, verbose=True):
             seen += to - fr
             tbw.add_scalar('mnistsort/loss/{}'.format(arg.size), loss.data.item(), seen)
 
-        if e % arg.dot_every == 0 or e == arg.epochs - 1:
+        if verbose and (e % arg.dot_every == 0 or e == arg.epochs - 1):
             """
             Compute the accuracy
             """
