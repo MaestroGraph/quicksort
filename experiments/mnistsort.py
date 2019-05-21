@@ -222,7 +222,8 @@ def go(arg, verbose=True):
     #    note that we only fix the training size to a given number. The test set is re-sampled each time, because it just
     #    improves the accuracy estimate
 
-    print('training on {} unique permutations of size {}.'.format(train_size, arg.size))
+    if verbose:
+        print('training on {} unique permutations of size {}.'.format(train_size, arg.size))
 
     # sample 100K permutations for the training set
     rand = random.Random(DATA_SEED)
@@ -253,14 +254,14 @@ def go(arg, verbose=True):
     seen = 0
     accuracy = 0.0
 
-    for e in range(arg.epochs):
+    for e in (range(arg.epochs) if verbose else trange(arg.epochs)):
         print('epoch', e)
 
         if arg.resample:
             s = arg.digits * arg.size
             train_perms = [rand.choices(range(data.size(0)), k=s) for _ in range(train_size)]
 
-        for fr in trange(0, train_size, arg.batch):
+        for fr in (trange(0, train_size, arg.batch) if verbose else range(0, train_size, arg.batch)):
 
             to = min(train_size, fr+arg.batch)
             ind = train_perms[fr:to]
@@ -388,10 +389,10 @@ def sweep(arg):
 
     carg.test_sizes = [arg.size] # only check the accuracy on the training set size
 
-    hyperparams = {'lr' : [1e-3, 1e-4, 1e-5], 'batch' : [32, 64]}
+    hyperparams = {'lr' : [1e-3, 1e-4, 1e-5], 'batch' : [64]}
 
     if arg.sort_method == 'neuralsort':
-        hyperparams['temp'] = [1, 2, 4, 8, 16]
+        hyperparams['temp'] = [2, 4, 8]
     else:
         hyperparams['temp'] = [-1]
 
