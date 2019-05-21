@@ -255,7 +255,8 @@ def go(arg, verbose=True):
     accuracy = 0.0
 
     for e in (range(arg.epochs) if verbose else trange(arg.epochs)):
-        print('epoch', e)
+        if verbose:
+            print('epoch', e)
 
         if arg.resample:
             s = arg.digits * arg.size
@@ -388,6 +389,7 @@ def sweep(arg):
     carg = copy.deepcopy(arg)
 
     carg.test_sizes = [arg.size] # only check the accuracy on the training set size
+    carg.split = 'search'
 
     hyperparams = {'lr' : [1e-3, 1e-4, 1e-5], 'batch' : [64]}
 
