@@ -251,11 +251,15 @@ def go(arg, verbose=True):
     optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
 
     seen = 0
-
-    accurary = 0.0
+    accuracy = 0.0
 
     for e in range(arg.epochs):
         print('epoch', e)
+
+        if arg.resample:
+            s = arg.digits * arg.size
+            train_perms = [rand.choices(range(data.size(0)), k=s) for _ in range(train_size)]
+
         for fr in trange(0, train_size, arg.batch):
 
             to = min(train_size, fr+arg.batch)
@@ -537,6 +541,11 @@ if __name__ == "__main__":
     parser.add_argument("--sweep",
                         dest="sweep",
                         help="Whether to perform a parameter sweep before running the final experiment.",
+                        action="store_true")
+
+    parser.add_argument("--resample",
+                        dest="resample",
+                        help="Whether resample the permutations every epoch (providing unbounded examples).",
                         action="store_true")
 
     parser.add_argument("-I", "--loss",
