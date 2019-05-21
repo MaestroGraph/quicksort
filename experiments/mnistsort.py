@@ -10,7 +10,7 @@ from tensorboardX import SummaryWriter
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import logging, time, gc, sys
+import logging, time, gc, sys, copy
 from dqsort import util, det_neuralsort
 import numpy as np
 
@@ -144,21 +144,7 @@ class Keynet(nn.Module):
 
         return y.view(b, n)
 
-
-# def plotn(data, ax):
-#
-#     n = data.size(0)
-#
-#     for i in range(n):
-#         im = data[i].data.cpu().numpy()
-#         ax.imshow(im, extent=(n-i-1, n-i, 0, 1), cmap='gray_r')
-#
-#     ax.set_xlim(0, n)
-#     ax.set_ylim(0, 1)
-#
-#     ax.axhline()
-
-def go(arg):
+def go(arg, verbose=True):
     """
 
     :param arg:
@@ -175,14 +161,14 @@ def go(arg):
     Load and organize the data
     """
     trans = torchvision.transforms.ToTensor()
-    if arg.final:
+    if arg.split == 'final':
         train = torchvision.datasets.MNIST(root=arg.data, train=True, download=True, transform=trans)
         trainloader = torch.utils.data.DataLoader(train, batch_size=arg.batch, shuffle=True, num_workers=2)
 
         test = torchvision.datasets.MNIST(root=arg.data, train=False, download=True, transform=trans)
         testloader = torch.utils.data.DataLoader(test, batch_size=arg.batch, shuffle=False, num_workers=2)
 
-    else:
+    elif arg.split == 'validation':
         NUM_TRAIN = 45000
         NUM_VAL = 5000
         total = NUM_TRAIN + NUM_VAL
@@ -191,6 +177,18 @@ def go(arg):
 
         trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
         testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+
+    elif arg.split == 'search':
+        NUM_TRAIN = 40000
+        NUM_VAL = 5000
+        total = NUM_TRAIN + NUM_VAL
+
+        train = torchvision.datasets.MNIST(root=arg.data, train=True, download=True, transform=trans)
+
+        trainloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(0, NUM_TRAIN, total))
+        testloader = DataLoader(train, batch_size=arg.batch, sampler=util.ChunkSampler(NUM_TRAIN, NUM_VAL, total))
+    else:
+        assert False, 'Split mode {} not recognized'.format(arg.split)
 
     shape = (1, 28, 28 * arg.digits)
     num_classes = 10
@@ -219,9 +217,10 @@ def go(arg):
     labels_test = torch.cat(lbatches, dim=0)
 
     tr = lambda n : int((n*n - n) // 2)
-    train_size = TRAIN_SIZE // tr(arg.size) # reduce the train size, to make the number of pair comparisons constant
-    # note that we only fix the training size to a given number. The test set is re-sampled each time, because it just
-    # improves the accuracy estimate
+    train_size = TRAIN_SIZE // tr(arg.size)
+    # -- reduce the train size, to make the number of pair comparisons constant
+    #    note that we only fix the training size to a given number. The test set is re-sampled each time, because it just
+    #    improves the accuracy estimate
 
     print('training on {} unique permutations of size {}.'.format(train_size, arg.size))
 
@@ -230,267 +229,196 @@ def go(arg):
     s = arg.digits * arg.size
     train_perms = [rand.choices(range(data.size(0)), k=s) for _ in range(train_size)]
 
+    util.makedirs('./mnistsort/')
 
-    for r in range(arg.reps):
-        print('starting {} out of {} repetitions'.format(r, arg.reps))
-        util.makedirs('./mnistsort/{}'.format( r))
+    if arg.sort_method == 'quicksort':
+        model = dqsort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale,
+                           sigma_floor=arg.min_sigma, certainty=arg.certainty)
+    else:
+        model = dqsort.NeuralSort(tau=arg.temp)
 
-        if arg.sort_method == 'quicksort':
-            model = dqsort.SortLayer(arg.size, additional=arg.additional, sigma_scale=arg.sigma_scale,
-                               sigma_floor=arg.min_sigma, certainty=arg.certainty)
-        else:
-            model = dqsort.NeuralSort(tau=arg.temp)
+    if arg.model == 'original':
+       tokeys = Keynet(batchnorm=arg.batch_norm, small=True, num_digits=arg.digits)
+    elif arg.model == 'big':
+       tokeys = Keynet(batchnorm=arg.batch_norm, small=False, num_digits=arg.digits)
+    else:
+        raise Exception('Model {} not recognized.'.format(arg.model))
 
-        if arg.model == 'original':
-           tokeys = Keynet(batchnorm=arg.batch_norm, small=True, num_digits=arg.digits)
-        elif arg.model == 'big':
-           tokeys = Keynet(batchnorm=arg.batch_norm, small=False, num_digits=arg.digits)
-        else:
-            raise Exception('Model {} not recognized.'.format(arg.model))
+    if arg.cuda:
+        model.cuda()
+        tokeys.cuda()
 
-        if arg.cuda:
-            model.cuda()
-            tokeys.cuda()
+    optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
 
-        optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
+    seen = 0
 
-        seen = 0
-        for e in range(arg.epochs):
-            print('epoch', e)
-            for fr in trange(0, train_size, arg.batch):
+    accurary = 0.0
 
-                to = min(train_size, fr+arg.batch)
-                ind = train_perms[fr:to]
-                ind = [item for sublist in ind for item in sublist] # flatten
+    for e in range(arg.epochs):
+        print('epoch', e)
+        for fr in trange(0, train_size, arg.batch):
 
-                x, t, l = gen(to-fr, data, labels, arg.size, arg.digits, inds=ind)
+            to = min(train_size, fr+arg.batch)
+            ind = train_perms[fr:to]
+            ind = [item for sublist in ind for item in sublist] # flatten
 
-                b = x.size(0)
+            x, t, l = gen(to-fr, data, labels, arg.size, arg.digits, inds=ind)
 
-                if arg.cuda:
-                    x, t, l = x.cuda(), t.cuda(), l.cuda()
+            b = x.size(0)
 
-                x, t = Variable(x), Variable(t)
+            if arg.cuda:
+                x, t, l = x.cuda(), t.cuda(), l.cuda()
 
-                optimizer.zero_grad()
+            x, t = Variable(x), Variable(t)
 
-                keys = tokeys(x)
+            optimizer.zero_grad()
 
-                x = x.view(b, arg.size, -1)
-                t = t.view(b, arg.size, -1)
+            keys = tokeys(x)
 
-                if type(model) == dqsort.SortLayer:
-                    ys, ts, keys = model(x, keys=keys, target=t)
-                else:
-                    ys, phat, phatraw = model(x, keys)
+            x = x.view(b, arg.size, -1)
+            t = t.view(b, arg.size, -1)
 
-                if arg.sort_method == 'neuralsort' and arg.loss == 'plain':
-                    loss = util.xent(ys, t).mean()
+            if type(model) == dqsort.SortLayer:
+                ys, ts, keys = model(x, keys=keys, target=t)
+            else:
+                ys, phat, phatraw = model(x, keys)
 
-                elif arg.sort_method == 'neuralsort' and arg.loss == 'xent':
+            if arg.sort_method == 'neuralsort' and arg.loss == 'plain':
+                loss = util.xent(ys, t).mean()
 
-                    _, gold = torch.sort(l, dim=1)
-                    loss = F.cross_entropy(phatraw.permute(0, 2, 1), gold)
+            elif arg.sort_method == 'neuralsort' and arg.loss == 'xent':
 
-                elif arg.loss == 'plain':
-                    # just compare the output to the target
-                    loss = util.xent(ys[-1], t).mean()
+                _, gold = torch.sort(l, dim=1)
+                loss = F.cross_entropy(phatraw.permute(0, 2, 1), gold)
 
-                elif arg.loss == 'means':
-                    # compare the output to the back-sorted target at each step
-                    loss = 0.0
+            elif arg.loss == 'plain':
+                # just compare the output to the target
+                loss = util.xent(ys[-1], t).mean()
+
+            elif arg.loss == 'means':
+                # compare the output to the back-sorted target at each step
+                loss = 0.0
+                loss = loss + util.xent(ys[0], ts[0]).mean()
+                loss = loss + util.xent(ts[-1], ts[-1]).mean()
+
+                # average over the buckets
+                for d in range(1, len(ys)-1):
+                    numbuckets = 2 ** d
+                    bucketsize = arg.size // numbuckets
+
+                    xb = ys[d][:, None, :, :].view(b, numbuckets, bucketsize, -1)
+                    tb = ts[d][:, None, :, :].view(b, numbuckets, bucketsize, -1)
+
+                    xb = xb.mean(dim=2)
+                    tb = tb.mean(dim=2)
+
+                    loss = loss + util.xent(xb, tb).mean() * bucketsize
+
+            elif arg.loss == 'separate':
+                loss = 0.0
+
+                for d in range(len(ys)):
                     loss = loss + util.xent(ys[0], ts[0]).mean()
-                    loss = loss + util.xent(ts[-1], ts[-1]).mean()
 
-                    # average over the buckets
-                    for d in range(1, len(ys)-1):
-                        numbuckets = 2 ** d
-                        bucketsize = arg.size // numbuckets
+            else:
+                raise Exception('Loss {} not recognized.'.format(arg.loss))
 
-                        xb = ys[d][:, None, :, :].view(b, numbuckets, bucketsize, -1)
-                        tb = ts[d][:, None, :, :].view(b, numbuckets, bucketsize, -1)
+            loss.backward()
 
-                        xb = xb.mean(dim=2)
-                        tb = tb.mean(dim=2)
+            optimizer.step()
 
-                        loss = loss + util.xent(xb, tb).mean() * bucketsize
+            seen += to - fr
+            tbw.add_scalar('mnistsort/loss/{}'.format(arg.size), loss.data.item(), seen)
 
-                elif arg.loss == 'separate':
-                    loss = 0.0
+        if e % arg.dot_every == 0 or e == arg.epochs - 1:
+            """
+            Compute the accuracy
+            """
+            print('computing accuracy')
 
-                    for d in range(len(ys)):
-                        loss = loss + util.xent(ys[0], ts[0]).mean()
+            with torch.no_grad():
 
-                else:
-                    raise Exception('Loss {} not recognized.'.format(arg.loss))
+                for test_size in arg.test_sizes:
 
-                loss.backward()
+                    tot, tot_sub = 0.0, 0.0
+                    correct, sub = 0.0, 0.0
 
-                optimizer.step()
+                    for fr in range(0, TEST_SIZE, arg.batch):
 
-                seen += to - fr
-                tbw.add_scalar('mnistsort/loss/{}/{}'.format(arg.size, r), loss.data.item(), seen)
+                        x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
 
-            # # Plot intermediate results, and targets
-            # if i % arg.plot_every == 0 and arg.sort_method == 'quicksort':
-            #
-            #     optimizer.zero_grad()
-            #
-            #     x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
-            #
-            #     if arg.cuda:
-            #         x, t = x.cuda(), t.cuda()
-            #
-            #     x, t = Variable(x), Variable(t)
-            #
-            #     keys = tokeys(x)
-            #
-            #     x = x.view(arg.batch, arg.size, -1)
-            #     t = t.view(arg.batch, arg.size, -1)
-            #
-            #     ys, ts, _ = model(x, keys=keys, target=t)
-            #
-            #     b, n, s = ys[0].size()
-            #
-            #     for d in range(1, len(ys) - 1):
-            #         numbuckets = 2 ** d
-            #         bucketsize = arg.size // numbuckets
-            #
-            #         xb = ys[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
-            #         tb = ts[d][:, None, :, :].view(arg.batch, numbuckets, bucketsize, s)
-            #
-            #         xb = xb.mean(dim=2, keepdim=True)\
-            #             .expand(arg.batch, numbuckets, bucketsize, s)\
-            #             .contiguous().view(arg.batch, n, s)
-            #         tb = tb.mean(dim=2, keepdim=True)\
-            #             .expand(arg.batch, numbuckets, bucketsize, s)\
-            #             .contiguous().view(arg.batch, n, s)
-            #
-            #         ys[d] = xb
-            #         ts[d] = tb
-            #
-            #     md = int(np.log2(arg.size))
-            #     plt.figure(figsize=(arg.size*2, md+1))
-            #
-            #     c = 1
-            #     for row in range(md + 1):
-            #         for col in range(arg.size*2):
-            #             ax = plt.subplot(md+1, arg.size*2, c)
-            #
-            #             images = ys[row] if col < arg.size else ts[row]
-            #             im = images[0].view(arg.size, 28, arg.digits * 28)[col%arg.size].data.cpu().numpy()
-            #
-            #             ax.imshow(im, cmap='gray_r')
-            #             clean(ax)
-            #
-            #             c += 1
-            #
-            #     plt.savefig('./mnistsort/{}/intermediates.{:04}.pdf'.format(r, i))
-            #
-            # # Plot the progress
-            # if i % arg.plot_every == 0 and arg.sort_method == 'quicksort':
-            #
-            #     optimizer.zero_grad()
-            #
-            #     x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
-            #
-            #     if arg.cuda:
-            #         x, t = x.cuda(), t.cuda()
-            #
-            #     x, t = Variable(x), Variable(t)
-            #
-            #     keys = tokeys(x)
-            #     keys.retain_grad()
-            #
-            #     x = x.view(arg.batch, arg.size, -1)
-            #     t = t.view(arg.batch, arg.size, -1)
-            #
-            #     yt, _ = model(x, keys=keys, train=True)
-            #
-            #     loss = F.mse_loss(yt, t)  # compute the loss
-            #     loss.backward()
-            #
-            #     yi, _ = model(x, keys=keys, train=False)
-            #
-            #     input  = x[0].view(arg.size, 28, arg.digits*28)
-            #     target = t[0].view(arg.size, 28, arg.digits*28)
-            #     output_inf   = yi[0].view(arg.size, 28, arg.digits*28)
-            #     output_train = yt[0].view(arg.size, 28, arg.digits*28)
-            #
-            #     plt.figure(figsize=(arg.size*3*arg.digits, 4*3))
-            #     for col in range(arg.size):
-            #
-            #         ax = plt.subplot(4, arg.size, col + 1)
-            #         ax.imshow(target[col].data.cpu().numpy())
-            #         clean(ax)
-            #
-            #         if col == 0:
-            #             ax.set_ylabel('target')
-            #
-            #         ax = plt.subplot(4, arg.size, col + arg.size + 1)
-            #         ax.imshow(input[col].data.cpu().numpy())
-            #         clean(ax)
-            #         ax.set_xlabel( '{:.2}, {:.2}'.format(keys[0, col], - keys.grad[0, col] ) )
-            #
-            #         if col == 0:
-            #             ax.set_ylabel('input')
-            #
-            #         ax = plt.subplot(4, arg.size, col + arg.size * 2 + 1)
-            #         ax.imshow(output_inf[col].data.cpu().numpy())
-            #         clean(ax)
-            #
-            #         if col == 0:
-            #             ax.set_ylabel('inference')
-            #
-            #         ax = plt.subplot(4, arg.size, col + arg.size * 3 + 1)
-            #         ax.imshow(output_train[col].data.cpu().numpy())
-            #         clean(ax)
-            #
-            #         if col == 0:
-            #             ax.set_ylabel('training')
-            #
-            #     plt.savefig('./mnistsort/{}/mnist.{:04}.pdf'.format(r, i))
+                        if arg.cuda:
+                            x, _, l = x.cuda(), t.cuda(), l.cuda()
 
-            if e % arg.dot_every == 0:
-                """
-                Compute the accuracy
-                """
-                print('computing accuracy')
+                        x, l = Variable(x), Variable(l)
 
-                with torch.no_grad():
+                        keys = tokeys(x)
 
-                    for test_size in arg.test_sizes:
+                        if arg.sort_method == 'neuralsort':
+                            keys = - keys
 
-                        tot, tot_sub = 0.0, 0.0
-                        correct, sub = 0.0, 0.0
+                        # Sort the keys, and sort the labels, and see if the resulting indices match
+                        _, gold = torch.sort(l, dim=1)
+                        _, mine = torch.sort(keys, dim=1)
 
-                        for fr in range(0, TEST_SIZE, arg.batch):
+                        tot += x.size(0)
+                        correct += ((gold != mine).sum(dim=1) == 0).sum().item()
 
-                            x, t, l = gen(arg.batch, data_test, labels_test, test_size, arg.digits)
+                        sub += (gold == mine).sum()
+                        tot_sub += util.prod(gold.size())
 
-                            if arg.cuda:
-                                x, _, l = x.cuda(), t.cuda(), l.cuda()
+                    if test_size == arg.size:
+                        accuracy = correct/tot
 
-                            x, l = Variable(x), Variable(l)
+                    print('test size {}, accuracy {:.5} ({:.5})'.format( test_size, correct/tot, float(sub)/tot_sub) )
+                    tbw.add_scalar('mnistsort/test-acc/{}'.format(test_size), correct/tot, e)
 
-                            keys = tokeys(x)
+    return accuracy
 
-                            if arg.sort_method == 'neuralsort':
-                                keys = - keys
 
-                            # Sort the keys, and sort the labels, and see if the resulting indices match
-                            _, gold = torch.sort(l, dim=1)
-                            _, mine = torch.sort(keys, dim=1)
+opt_arg = None
+opt_acc = -1.0
 
-                            tot += x.size(0)
-                            correct += ((gold != mine).sum(dim=1) == 0).sum().item()
+def sweep(arg):
+    carg = copy.deepcopy(arg)
 
-                            sub += (gold == mine).sum()
-                            tot_sub += util.prod(gold.size())
+    carg.test_sizes = [arg.size] # only check the accuracy on the training set size
 
-                        print('test size {}, accuracy {:.5} ({:.5})'.format( test_size, correct/tot, float(sub)/tot_sub) )
-                        tbw.add_scalar('mnistsort/test-acc/{}/{}'.format(test_size, r), correct/tot, e)
+    hyperparams = {'lr' : [1e-3, 1e-4, 1e-5], 'batch' : [32, 64]}
 
+    if arg.sort_method == 'neuralsort':
+        hyperparams['temp'] = [1, 2, 4, 8, 16]
+    else:
+        hyperparams['temp'] = [-1]
+
+    sweep_inner(carg, hyperparams)
+
+    return opt_arg
+
+def sweep_inner(carg, hyperparams, depth = 0):
+    if depth == len(hyperparams):
+        carg = copy.deepcopy(carg)
+
+        for k, v in hyperparams.items():
+            setattr(carg, k, v)
+
+        print('starting sweep with', hyperparams)
+        acc = go(carg, verbose=False)
+
+        if acc > opt_acc:
+            opt_acc_= acc
+            opt_arg = carg
+
+        return
+
+    param = list(hyperparams.keys())[depth]
+
+    for value in hyperparams[param]:
+
+        chp = copy.deepcopy(hyperparams)
+        chp[param] = value
+
+        sweep_inner(carg, chp, depth + 1)
 
 if __name__ == "__main__":
 
@@ -504,7 +432,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--sort",
                         dest="sort_method",
-                        help="Whether to use the baseline (NeuralSort), or Quicksort.",
+                        help="Whether to use the baseline (neuralsort), or quicksort.",
                         default='quicksort', type=str)
 
     parser.add_argument("-s", "--size",
@@ -577,11 +505,6 @@ if __name__ == "__main__":
                         help="Certainty: scaling factor in the bucketing computation.",
                         default=10.0, type=float)
 
-    parser.add_argument("-R", "--repeats",
-                        dest="reps",
-                        help="Number of repeats.",
-                        default=1, type=int)
-
     parser.add_argument("-T", "--temperature",
                         dest="temp",
                         help="Temperature for the neuralsort baseline.",
@@ -602,13 +525,18 @@ if __name__ == "__main__":
                         help="Limit on the nr ofexamples per class (for debugging).",
                         default=None, type=int)
 
-    parser.add_argument("-f", "--final", dest="final",
-                        help="Whether to run on the real test set.",
-                        action="store_true")
+    parser.add_argument("--split", dest="split",
+                        help="Whether to run on the final test set, the validation set, or a subset of the training set.",
+                        default='validation', type=str)
 
     parser.add_argument("--batch-norm",
                         dest="batch_norm",
                         help="Whether to use batch normalization in the key net.",
+                        action="store_true")
+
+    parser.add_argument("--sweep",
+                        dest="sweep",
+                        help="Whether to perform a parameter sweep before running the final experiment.",
                         action="store_true")
 
     parser.add_argument("-I", "--loss",
@@ -618,7 +546,12 @@ if __name__ == "__main__":
 
     options = parser.parse_args()
 
-    print('OPTIONS ', options)
-    LOG.info('OPTIONS ' + str(options))
+    print('Options:', options)
 
-    go(options)
+    if(options.sweep):
+        options = sweep(options)
+        print('Selected hyperparameters:', options)
+
+    final = go(options)
+
+    print('Finished.')
