@@ -403,6 +403,8 @@ def sweep(arg):
     return opt_arg
 
 def sweep_inner(carg, hyperparams, depth = 0):
+    global opt_arg, opt_acc
+
     if depth == len(hyperparams):
         carg = copy.deepcopy(carg)
 
@@ -413,7 +415,7 @@ def sweep_inner(carg, hyperparams, depth = 0):
         acc = go(carg, verbose=False)
 
         if acc > opt_acc:
-            opt_acc_= acc
+            opt_acc = acc
             opt_arg = carg
 
         return
