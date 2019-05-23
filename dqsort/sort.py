@@ -122,7 +122,7 @@ class Split(nn.Module):
 
         output   = tensors.batchmm(indices, probs, (s, s), input)
 
-        keys_out = tensors.batchmm(indices, probs, (s, s), keys[:, :, None]).squeeze()
+        keys_out = tensors.batchmm(indices, probs, (s, s), keys[:, :, None]).squeeze(-1)
 
         return output, keys_out
 

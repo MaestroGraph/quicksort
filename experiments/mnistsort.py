@@ -252,7 +252,7 @@ def go(arg, verbose=True):
     optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
 
     seen = 0
-    accuracy = 0.0
+    accuracy, proportion = 0.0, 0.0
 
     for e in (range(arg.epochs) if verbose else trange(arg.epochs)):
         if verbose:
@@ -375,11 +375,12 @@ def go(arg, verbose=True):
 
                     if test_size == arg.size:
                         accuracy = correct/tot
+                        proportion = float(sub)/tot_sub
 
                     print('test size {}, accuracy {:.5} ({:.5})'.format( test_size, correct/tot, float(sub)/tot_sub) )
                     tbw.add_scalar('mnistsort/test-acc/{}'.format(test_size), correct/tot, e)
 
-    return accuracy
+    return accuracy, proportion
 
 
 opt_arg = None
@@ -390,7 +391,7 @@ def sweep(arg):
 
     sizes = arg.test_sizes
     carg.test_sizes = [arg.size] # only check the accuracy on the training set size
-    carg.split = 'validation' if arg.final else 'search'
+    carg.split = 'validation' if arg.split == 'final' else 'search'
 
     hyperparams = {'lr' : [1e-3, 1e-4, 1e-5], 'batch' : [64]}
 
@@ -402,7 +403,7 @@ def sweep(arg):
     sweep_inner(carg, hyperparams)
 
     opt_arg.test_sizes = sizes
-    opt_arg.split = 'final' if arg.final else 'validation'
+    opt_arg.split = 'final' if arg.split == 'final' else 'validation'
 
     return opt_arg
 
@@ -416,7 +417,7 @@ def sweep_inner(carg, hyperparams, depth = 0):
             setattr(carg, k, v)
 
         print('starting sweep with', hyperparams)
-        acc = go(carg, verbose=False)
+        acc, _ = go(carg, verbose=False)
 
         if acc > opt_acc:
             opt_acc = acc
@@ -570,6 +571,7 @@ if __name__ == "__main__":
         options = sweep(options)
         print('Selected hyperparameters:', options)
 
-    final = go(options)
+    a, p = go(options)
 
-    print('Finished.')
+    print(options)
+    print('final acc {:.3}, prop {:.3}'.format(a, p))
