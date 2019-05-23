@@ -388,8 +388,9 @@ opt_acc = -1.0
 def sweep(arg):
     carg = copy.deepcopy(arg)
 
+    sizes = arg.test_sizes
     carg.test_sizes = [arg.size] # only check the accuracy on the training set size
-    carg.split = 'search'
+    carg.split = 'validation' if arg.final else 'search'
 
     hyperparams = {'lr' : [1e-3, 1e-4, 1e-5], 'batch' : [64]}
 
@@ -399,6 +400,9 @@ def sweep(arg):
         hyperparams['temp'] = [-1]
 
     sweep_inner(carg, hyperparams)
+
+    opt_arg.test_sizes = sizes
+    opt_arg.split = 'final' if arg.final else 'validation'
 
     return opt_arg
 
