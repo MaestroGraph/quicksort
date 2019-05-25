@@ -392,11 +392,12 @@ def sweep(arg):
     sizes = arg.test_sizes
     carg.test_sizes = [arg.size] # only check the accuracy on the training set size
     carg.split = 'validation' if arg.split == 'final' else 'search'
+    carg.epochs = arg.sweep_epochs
 
-    hyperparams = {'lr' : [1e-3, 1e-4, 1e-5], 'batch' : [64]}
+    hyperparams = {'lr' : [1e-4, 1e-5], 'batch' : [16, 32, 64]}
 
     if arg.sort_method == 'neuralsort':
-        hyperparams['temp'] = [2, 4, 8]
+        hyperparams['temp'] = [2]
     else:
         hyperparams['temp'] = [-1]
 
@@ -404,6 +405,7 @@ def sweep(arg):
 
     opt_arg.test_sizes = sizes
     opt_arg.split = 'final' if arg.split == 'final' else 'validation'
+    opt_arg.epochs = arg.epochs
 
     return opt_arg
 
@@ -472,8 +474,13 @@ if __name__ == "__main__":
 
     parser.add_argument("-e", "--epochs",
                         dest="epochs",
-                        help="Number of epochs over the fixed set of permutations",
+                        help="Number of epochs over the fixed set of permutations.",
                         default=100, type=int)
+
+    parser.add_argument("--sweep-epochs",
+                        dest="sweep_epochs",
+                        help="Number of epochs used in the hyperparameter sweep.",
+                        default=30, type=int)
 
     parser.add_argument("-a", "--additional",
                         dest="additional",
