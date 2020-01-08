@@ -94,6 +94,8 @@ def go(arg):
     :return:
     """
 
+    torch.autograd.set_detect_anomaly(True)
+
     torch.manual_seed(arg.seed)
     np.random.seed(arg.seed)
     random.seed(arg.seed)
