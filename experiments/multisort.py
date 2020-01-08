@@ -94,8 +94,6 @@ def go(arg):
     :return:
     """
 
-    torch.autograd.set_detect_anomaly(True)
-
     torch.manual_seed(arg.seed)
     np.random.seed(arg.seed)
     random.seed(arg.seed)
@@ -203,6 +201,7 @@ def go(arg):
         optimizer = optim.Adam(list(model.parameters()) + list(tokeys.parameters()), lr=arg.lr)
 
         for i in range(arg.iterations):
+
 
             x, t, l = gen(arg.batch, data, labels, arg.size, arg.digits)
 

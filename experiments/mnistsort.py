@@ -22,6 +22,8 @@ from torch.utils.data import TensorDataset, DataLoader
 logging.basicConfig(filename='run.log',level=logging.INFO)
 LOG = logging.getLogger()
 
+import warnings
+
 """
 Experiment: learn to sort numbers consisting of multiple MNIST digits.
 

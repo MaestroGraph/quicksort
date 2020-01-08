@@ -749,7 +749,7 @@ def sample_offsets(batch, num, size, depth, cuda=False):
     numbuckets = 2 ** depth # number of buckets in the input
     bsize      = size // numbuckets  # size of the input buckets
 
-    ordered = torch.tensor([0,1], dtype=torch.uint8, device=dv)[None, None, None, :, None].expand(batch, num, numbuckets, 2, bsize // 2)
+    ordered = torch.tensor([0,1], dtype=torch.bool, device=dv)[None, None, None, :, None].expand(batch, num, numbuckets, 2, bsize // 2)
     ordered = ordered.contiguous().view(batch, num, numbuckets, bsize)
 
     # shuffle the buckets

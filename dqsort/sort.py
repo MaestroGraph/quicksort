@@ -63,24 +63,26 @@ class Split(nn.Module):
 
         b, s = offset.size()
 
-        choices = offset.round().byte()[:, None, :]
+        choices = offset.round()[:, None, :].to(torch.bool)
 
         if additional > 0:
             sampled = util.sample_offsets(b, additional, s, self.depth, cuda=offset.is_cuda)
             # sampled = ~ choices
 
-            choices = torch.cat([choices, sampled], dim=1).byte()
+            choices = torch.cat([choices, sampled], dim=1)
 
         return self.generate(choices, offset)
 
     def generate(self, choices, offset):
 
+        choices = choices.detach()
         b, n, s = choices.size()
 
-        offset = offset[:, None, :].expand(b, n, s)
+        probs = offset[:, None, :].expand(b, n, s).clone()
 
-        probs = offset.clone()
-        probs[~ choices] = 1.0 - probs[~ choices]
+        sel = 1.0 - probs.clone()[~ choices]
+        probs[~ choices] = sel
+        # probs[~ choices] = 1.0 - probs[~ choices].clone()
         # prob now contains the probability (under offset) of the choices made
         probs = probs.prod(dim=2, keepdim=True).expand(b, n, s).contiguous()
 
@@ -174,7 +176,7 @@ class SortLayer(nn.Module):
             # compute offsets by comparing values to pivots
             if train:
                 offset = keys - pivots
-                offset = F.sigmoid(offset * self.certainty)
+                offset = torch.sigmoid(offset * self.certainty)
             else:
                 offset = (keys > pivots).float()
 
