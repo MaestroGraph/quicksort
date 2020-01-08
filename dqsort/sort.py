@@ -51,10 +51,10 @@ class Split(nn.Module):
         sorted, sort_idx = torch.sort(unique, dim=1)
         _, unsort_idx = torch.sort(sort_idx, dim=1)
 
-        mask = (sorted[:, 1:] == sorted[:, :-1]).to(torch.uint8)
+        mask = sorted[:, 1:] == sorted[:, :-1]
         # mask = mask.view(b, k - 1)
 
-        zs = torch.zeros(b, 1, dtype=torch.uint8, device='cuda' if tuples.is_cuda else 'cpu')
+        zs = torch.zeros(b, 1, dtype=torch.bool, device='cuda' if tuples.is_cuda else 'cpu')
         mask = torch.cat([zs, mask], dim=1)
 
         return torch.gather(mask, 1, unsort_idx)
